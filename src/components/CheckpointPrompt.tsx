@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
-  SendIcon,
-  HelpCircleIcon
+    SendIcon,
+    HelpCircleIcon
 } from '@/components/Icons';
 
 interface CheckpointPromptProps {
@@ -30,9 +30,9 @@ export const CheckpointPrompt: React.FC<CheckpointPromptProps> = ({
   // Auto-focus the textarea when it appears.
   useEffect(() => {
     if (selected?.toLowerCase() === allowTextInputOn?.toLowerCase()) {
-      setTimeout(() => {
-        textareaRef.current?.focus();
-      }, 100); // Small delay to ensure the element is rendered and visible
+        setTimeout(() => {
+            textareaRef.current?.focus();
+        }, 100); // Small delay to ensure the element is rendered and visible
     }
   }, [selected, allowTextInputOn]);
 
@@ -41,14 +41,14 @@ export const CheckpointPrompt: React.FC<CheckpointPromptProps> = ({
     if (!selected) return;
     onAnswer(selected, comment.trim() || undefined);
   };
-
+  
   // Handle Enter key submission from the textarea
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      if (!selected || isLoading) return;
-      onAnswer(selected, comment.trim() || undefined);
-    }
+      if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          if (!selected || isLoading) return;
+          onAnswer(selected, comment.trim() || undefined);
+      }
   };
 
   const handleSelectOption = (e: React.MouseEvent<HTMLButtonElement>, opt: string) => {
@@ -62,23 +62,24 @@ export const CheckpointPrompt: React.FC<CheckpointPromptProps> = ({
       onTutorHelp(question, selected ?? undefined);
     }
   };
-
+  
   const showCommentBox = selected && selected.toLowerCase() === allowTextInputOn?.toLowerCase();
 
   return (
     <div className="mt-4 p-4 bg-slate-200/50 dark:bg-slate-900/50 rounded-md border border-slate-300 dark:border-slate-700 animate-fade-in-up">
       <p className="font-semibold text-sm text-indigo-700 dark:text-indigo-300 italic">{question}</p>
-
+      
       <div className="flex gap-3 mt-3 flex-wrap">
         {options.map(opt => (
           <button
             key={opt}
             onClick={(e) => handleSelectOption(e, opt)}
             disabled={isLoading}
-            className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${selected === opt
+            className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+              selected === opt
                 ? 'bg-indigo-600 text-white ring-2 ring-offset-2 ring-indigo-500 ring-offset-slate-100 dark:ring-offset-slate-800'
                 : 'bg-white dark:bg-slate-700 text-slate-800 dark:text-white hover:bg-slate-200 dark:hover:bg-slate-600'
-              } disabled:opacity-50`}
+            } disabled:opacity-50`}
           >
             {opt}
           </button>
@@ -124,8 +125,9 @@ export const CheckpointPrompt: React.FC<CheckpointPromptProps> = ({
           <button
             onClick={handleAIHelp}
             disabled={isLoading}
-            className={`text-sm text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1.5 disabled:opacity-50 transition-all ${showCommentBox ? 'animate-pulse' : ''
-              }`}
+            className={`text-sm text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1.5 disabled:opacity-50 transition-all ${
+                showCommentBox ? 'animate-pulse' : ''
+            }`}
           >
             <HelpCircleIcon className="h-4 w-4" />
             Ask the AI Tutor

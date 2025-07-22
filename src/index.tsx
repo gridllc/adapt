@@ -1,4 +1,3 @@
-
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { createBrowserRouter, RouterProvider } from 'react-router-dom';
@@ -13,7 +12,7 @@ import EditPage from '@/pages/EditPage';
 import LoginPage from '@/pages/LoginPage';
 import ForgotPasswordPage from '@/pages/ForgotPasswordPage';
 import UpdatePasswordPage from '@/pages/UpdatePasswordPage';
-import DashboardPage from '@/pages/DashboardPage';
+import DashboardPage from './pages/DashboardPage';
 import FaqPage from '@/pages/FaqPage';
 import NotFoundPage from '@/pages/NotFoundPage';
 import ProtectedRoute from '@/components/ProtectedRoute';
