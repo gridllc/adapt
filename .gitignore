@@ -1,0 +1,27 @@
+# Firebase service account keys
+adapt-b03b7-firebase-adminsdk-*.json
+
+# Firebase config
+.firebase/
+.firebaserc
+firebase.json
+firestore.indexes.json
+firestore.rules
+
+# VS Code settings
+.vscode/
+
+# Logs and system files
+*.log
+.DS_Store
+
+# Build artifacts
+dist/
+build/
+
+# Node modules
+node_modules/
+
+# Environment variables
+.env
+.env.*.local
