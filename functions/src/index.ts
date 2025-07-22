@@ -1,5 +1,5 @@
 
-import { onCall, HttpsError } from "firebase-functions/v2/on_call";
+import { onCall, HttpsError } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
 import { GoogleGenAI, GenerateContentResponse, Type } from "@google/genai";
 import { getStorage } from "firebase-admin/storage";
@@ -10,6 +10,23 @@ const storage = getStorage();
 
 // --- AI Client & Embedding Setup ---
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+
+/**
+ * A secure and specific CORS configuration for all callable functions.
+ * This allows requests from the local development server and the deployed frontend application.
+ */
+const corsOptions = {
+  // Allow requests from localhost for development, and from the deployed frontend.
+  // Using a Regex for localhost allows any port.
+  cors: [
+    /^http:\/\/localhost:\d+$/,
+    /^http:\/\/127\.0\.0\.1:\d+$/,
+    "https://adapt-frontend-rkdt.onrender.com",
+    // Add Firebase Hosting domains for good measure in case of future deployments.
+    /web\.app$/,
+    /firebaseapp\.com$/,
+  ],
+};
 
 /**
  * Generates a vector embedding for a given text.
@@ -46,7 +63,8 @@ const cosineSimilarity = (a: number[], b: number[]): number => {
 
 // --- Module Data Functions ---
 
-export const getModule = onCall<{ moduleId: string }, Promise<any>>(
+export const getModule = onCall<{ moduleId: string }>(
+  corsOptions,
   async (request) => {
     const { moduleId } = request.data;
     if (!moduleId) {
@@ -60,7 +78,7 @@ export const getModule = onCall<{ moduleId: string }, Promise<any>>(
   },
 );
 
-export const getAvailableModules = onCall(async () => {
+export const getAvailableModules = onCall(corsOptions, async () => {
   const modulesSnapshot = await db.collection("modules").get();
   return modulesSnapshot.docs.map((doc) => ({
     ...doc.data(),
@@ -69,8 +87,9 @@ export const getAvailableModules = onCall(async () => {
   }));
 });
 
-export const getSignedUploadUrl = onCall<{ slug: string; contentType: string; fileExtension: string }, Promise<{ uploadUrl: string, filePath: string }>>(
-  async (request) => {
+export const getSignedUploadUrl = onCall<{ slug: string; contentType: string; fileExtension: string }>(
+  corsOptions,
+  async (request): Promise<{ uploadUrl: string, filePath: string }> => {
     const uid = request.auth?.uid;
     if (!uid) {
       throw new HttpsError("unauthenticated", "You must be logged in.");
@@ -88,8 +107,9 @@ export const getSignedUploadUrl = onCall<{ slug: string; contentType: string; fi
   },
 );
 
-export const getSignedDownloadUrl = onCall<{ filePath: string }, Promise<{ downloadUrl: string }>>(
-  async (request) => {
+export const getSignedDownloadUrl = onCall<{ filePath: string }>(
+  corsOptions,
+  async (request): Promise<{ downloadUrl: string }> => {
     const { filePath } = request.data;
     const file = storage.bucket().file(filePath);
     const [url] = await file.getSignedUrl({
@@ -101,7 +121,8 @@ export const getSignedDownloadUrl = onCall<{ filePath: string }, Promise<{ downl
   },
 );
 
-export const saveModule = onCall<{ moduleData: any }, Promise<any>>(
+export const saveModule = onCall<{ moduleData: any }>(
+  corsOptions,
   async (request) => {
     const uid = request.auth?.uid;
     if (!uid) {
@@ -129,8 +150,9 @@ export const saveModule = onCall<{ moduleData: any }, Promise<any>>(
   },
 );
 
-export const deleteModule = onCall<{ slug: string }, Promise<{ success: boolean }>>(
-  async (request) => {
+export const deleteModule = onCall<{ slug: string }>(
+  corsOptions,
+  async (request): Promise<{ success: boolean }> => {
     const uid = request.auth?.uid;
     const { slug } = request.data;
     if (!uid) {
@@ -160,8 +182,9 @@ export const deleteModule = onCall<{ slug: string }, Promise<{ success: boolean 
 
 // --- AI & Analytics Functions ---
 
-export const logTutorInteraction = onCall<{ userQuestion: string; tutorResponse: string; moduleId: string; stepIndex: number }, Promise<{ status: string }>>(
-  async (request) => {
+export const logTutorInteraction = onCall<{ userQuestion: string; tutorResponse: string; moduleId: string; stepIndex: number }>(
+  corsOptions,
+  async (request): Promise<{ status: string }> => {
     const uid = request.auth?.uid;
     if (!uid) throw new HttpsError("unauthenticated", "Authentication required.");
     const { userQuestion, tutorResponse, moduleId, stepIndex } = request.data;
@@ -179,8 +202,9 @@ export const logTutorInteraction = onCall<{ userQuestion: string; tutorResponse:
   },
 );
 
-export const findSimilarInteractions = onCall<{ question: string; moduleId: string }, Promise<any[]>>(
-  async (request) => {
+export const findSimilarInteractions = onCall<{ question: string; moduleId: string }>(
+  corsOptions,
+  async (request): Promise<any[]> => {
     if (!request.auth?.uid) throw new HttpsError("unauthenticated", "Authentication required.");
     const { question, moduleId } = request.data;
     const queryVector = await generateEmbedding(question);
@@ -214,8 +238,9 @@ const refinementSchema = {
   required: ["newDescription", "newAlternativeMethod"],
 };
 
-export const refineStep = onCall<{ moduleId: string; stepIndex: number }, Promise<{ suggestion: any }>>(
-  async (request) => {
+export const refineStep = onCall<{ moduleId: string; stepIndex: number }>(
+  corsOptions,
+  async (request): Promise<{ suggestion: any }> => {
     if (!request.auth?.uid) throw new HttpsError("unauthenticated", "Authentication required.");
     const { moduleId, stepIndex } = request.data;
     const moduleDoc = await db.collection("modules").doc(moduleId).get();
@@ -259,8 +284,9 @@ export const refineStep = onCall<{ moduleId: string; stepIndex: number }, Promis
   },
 );
 
-export const flagQuestion = onCall<any, Promise<{ status: string; issueId: string }>>(
-  async (request) => {
+export const flagQuestion = onCall<any>(
+  corsOptions,
+  async (request): Promise<{ status: string; issueId: string }> => {
     const uid = request.auth?.uid;
     if (!uid) {
       throw new HttpsError("unauthenticated", "You must be logged in to flag a question.");
@@ -280,8 +306,9 @@ export const flagQuestion = onCall<any, Promise<{ status: string; issueId: strin
   },
 );
 
-export const getFlaggedQuestions = onCall<{ moduleId: string }, Promise<any[]>>(
-  async (request) => {
+export const getFlaggedQuestions = onCall<{ moduleId: string }>(
+  corsOptions,
+  async (request): Promise<any[]> => {
     const uid = request.auth?.uid;
     if (!uid) {
       throw new HttpsError("unauthenticated", "You must be logged in.");
@@ -305,7 +332,7 @@ export const getFlaggedQuestions = onCall<{ moduleId: string }, Promise<any[]>>(
   }
 );
 
-export const getCheckpointFailureStats = onCall(async (request) => {
+export const getCheckpointFailureStats = onCall(corsOptions, async (request) => {
   const { moduleId } = request.data;
   const snapshot = await db.collection("checkpointResponses")
     .where("module_id", "==", moduleId)
@@ -337,7 +364,7 @@ export const getCheckpointFailureStats = onCall(async (request) => {
 //     return {success: true};
 // });
 
-export const getQuestionFrequency = onCall(async (request) => {
+export const getQuestionFrequency = onCall(corsOptions, async (request) => {
   const { moduleId } = request.data;
   const snapshot = await db.collection("tutorLogs").where("module_id", "==", moduleId).get();
   const stats: Record<string, { question: string, stepIndex: number, count: number }> = {};
