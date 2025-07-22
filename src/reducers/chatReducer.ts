@@ -37,13 +37,13 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
     case 'STREAM_MESSAGE_CHUNK':
       return {
         ...state,
-        isLoading: false, // First chunk received
+        isLoading: false, // First chunk received, stop global loading
         messages: state.messages.map(msg => {
           if (msg.id !== action.payload.messageId) return msg;
           const updatedMsg: ChatMessage = {
             ...msg,
             text: (msg.text || '') + action.payload.chunk,
-            isLoading: false,
+            isLoading: true, // Keep loading TRUE during stream for cursor effect
           };
           if (action.payload.citations) {
             const currentCitations = msg.citations || [];

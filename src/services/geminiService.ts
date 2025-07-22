@@ -25,9 +25,11 @@ function getAiClient(): GoogleGenAI {
     if (cachedClient) {
         return cachedClient;
     }
-    const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+    // The VITE_API_KEY is set in the frontend hosting environment (e.g., Render, Vercel).
+    // Vite requires the `VITE_` prefix to expose it to the client-side code.
+    const apiKey = import.meta.env.VITE_API_KEY;
     if (!apiKey) {
-        throw new Error("AI features are unavailable. The required API key is missing from the environment.");
+        throw new Error("AI features are unavailable. The VITE_API_KEY is missing from the frontend environment.");
     }
     cachedClient = new GoogleGenAI({ apiKey });
     return cachedClient;

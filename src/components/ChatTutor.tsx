@@ -1,16 +1,16 @@
 import React, { useState, useEffect, useRef, useCallback, useReducer } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { startChat, getFallbackResponse, generateImage, sendMessageWithRetry } from '../services/geminiService';
-import * as ttsService from '../services/ttsService';
-import { submitSuggestion } from '../services/suggestionsService';
-import { getChatHistory, saveChatMessage, updateMessageFeedback } from '../services/chatService';
-import { findSimilarInteractions, logTutorInteraction } from '../services/tutorLogService';
-import { flagQuestion } from '../services/flaggingService';
+import { startChat, getFallbackResponse, generateImage, sendMessageWithRetry } from '@/services/geminiService';
+import * as ttsService from '@/services/ttsService';
+import { submitSuggestion } from '@/services/suggestionsService';
+import { getChatHistory, saveChatMessage, updateMessageFeedback } from '@/services/chatService';
+import { findSimilarInteractions, logTutorInteraction } from '@/services/tutorLogService';
+import { flagQuestion } from '@/services/flaggingService';
 import { chatReducer, initialChatState } from '@/reducers/chatReducer';
-import type { ChatMessage, ProcessStep, TutorLog } from '../types';
+import type { ChatMessage, ProcessStep, TutorLog } from '@/types';
 import { SendIcon, BotIcon, UserIcon, LinkIcon, SpeakerOnIcon, SpeakerOffIcon, LightbulbIcon, DownloadIcon, MessageSquareIcon, XIcon, CheckCircleIcon, ImageIcon, SparklesIcon, ClockIcon, AlertTriangleIcon, DatabaseIcon, ThumbsUpIcon, ThumbsDownIcon } from './Icons';
-import { useToast } from '../hooks/useToast';
-import { useAuth } from '../hooks/useAuth';
+import { useToast } from '@/hooks/useToast';
+import { useAuth } from '@/hooks/useAuth';
 import type { Chat, Content, GroundingChunk } from '@google/genai';
 
 interface ChatTutorProps {
@@ -478,10 +478,10 @@ export const ChatTutor: React.FC<ChatTutorProps> = ({ moduleId, sessionToken, st
 
                 {!isLoadingHistory && messages.length === 0 && !isLoading && !error && (
                     <div className="flex items-start gap-3 animate-fade-in-up">
-                        <div className="flex-shrink-0 h-8 w-8 rounded-full bg-indigo-500 flex items-center justify-center">
-                            <BotIcon className="h-5 w-5 text-white" />
+                        <div className="flex-shrink-0 h-8 w-8 rounded-full bg-gradient-to-br from-indigo-500 to-purple-500 flex items-center justify-center">
+                            <SparklesIcon className="h-5 w-5 text-white" />
                         </div>
-                        <div className="max-w-xs md:max-w-md break-words p-3 rounded-lg bg-slate-100 dark:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-bl-none">
+                        <div className="max-w-xs md:max-w-md break-words p-3 rounded-xl bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-bl-sm">
                             <p className="text-base whitespace-pre-wrap">Hello! I'm the Adapt AI Tutor. I can try to answer questions about the process.</p>
                         </div>
                     </div>
@@ -489,8 +489,8 @@ export const ChatTutor: React.FC<ChatTutorProps> = ({ moduleId, sessionToken, st
                 {messages.map((msg: ChatMessage, idx: number) => (
                     <div key={msg.id} className={`flex items-start gap-3 ${msg.role === 'user' ? 'justify-end' : ''} animate-fade-in-up`}>
                         {msg.role === 'model' && (
-                            <div className="flex-shrink-0 h-8 w-8 rounded-full bg-indigo-500 flex items-center justify-center relative">
-                                <BotIcon className="h-5 w-5 text-white" />
+                            <div className="flex-shrink-0 h-8 w-8 rounded-full bg-gradient-to-br from-indigo-500 to-purple-500 flex items-center justify-center relative">
+                                <SparklesIcon className="h-5 w-5 text-white" />
                                 {msg.isFallback && (
                                     <div className="absolute -bottom-2 -right-2 text-xs bg-amber-500 text-white rounded-full px-1 py-0.5" title="Response from fallback provider">
                                         F
@@ -498,17 +498,24 @@ export const ChatTutor: React.FC<ChatTutorProps> = ({ moduleId, sessionToken, st
                                 )}
                             </div>
                         )}
-                        <div className={`max-w-xs md:max-w-md break-words p-3 rounded-lg ${msg.role === 'user'
-                            ? 'bg-blue-600 text-white rounded-br-none'
+                        <div className={`max-w-xs md:max-w-md break-words p-3 rounded-xl ${msg.role === 'user'
+                            ? 'bg-indigo-500 text-white rounded-br-sm'
                             : msg.isError
-                                ? 'bg-red-100 dark:bg-red-900/50 rounded-bl-none'
-                                : 'bg-slate-100 dark:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-bl-none'
+                                ? 'bg-red-100 dark:bg-red-900/50 rounded-bl-sm'
+                                : 'bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-bl-sm'
                             }`}>
                             {msg.isLoading ? (
-                                <div className="flex items-center gap-2">
-                                    {msg.imageUrl === '' ? <ImageIcon className="h-5 w-5 text-slate-500 animate-pulse" /> : <SparklesIcon className="h-5 w-5 text-slate-500 animate-pulse" />}
-                                    <span className="text-slate-600 dark:text-slate-300 italic">{msg.text || 'Thinking...'}</span>
-                                </div>
+                                msg.text ? (
+                                    <div className="flex items-baseline text-slate-800 dark:text-slate-200">
+                                        <p className="text-base whitespace-pre-wrap">{msg.text}</p>
+                                        <span className="inline-block w-0.5 h-4 ml-1 bg-current animate-blink" />
+                                    </div>
+                                ) : (
+                                    <div className="flex items-center gap-2">
+                                        <SparklesIcon className="h-5 w-5 text-slate-500 animate-pulse" />
+                                        <span className="text-slate-600 dark:text-slate-300 italic">{msg.imageUrl === '' ? 'Generating image...' : 'Thinking...'}</span>
+                                    </div>
+                                )
                             ) : msg.isError ? (
                                 <div className="flex items-start gap-2 text-red-800 dark:text-red-200">
                                     <AlertTriangleIcon className="h-5 w-5 flex-shrink-0" />
@@ -652,38 +659,24 @@ export const ChatTutor: React.FC<ChatTutorProps> = ({ moduleId, sessionToken, st
                         )}
                     </div>
                 ))}
-
-                {isLoading && !messages.some((m: ChatMessage) => m.isLoading) && (
-                    <div className="flex items-start gap-3 animate-fade-in-up">
-                        <div className="flex-shrink-0 h-8 w-8 rounded-full bg-indigo-500 flex items-center justify-center">
-                            <BotIcon className="h-5 w-5 text-white animate-pulse" />
-                        </div>
-                        <div className="bg-slate-100 dark:bg-slate-700 p-3 rounded-lg rounded-bl-none">
-                            <div className="flex items-center space-x-1">
-                                <div className="h-2 w-2 bg-slate-400 dark:bg-slate-400 rounded-full animate-bounce [animation-delay:-0.3s]"></div>
-                                <div className="h-2 w-2 bg-slate-400 dark:bg-slate-400 rounded-full animate-bounce [animation-delay:-0.15s]"></div>
-                                <div className="h-2 w-2 bg-slate-400 dark:bg-slate-400 rounded-full animate-bounce"></div>
-                            </div>
-                        </div>
-                    </div>
-                )}
                 {error && <p className="text-red-500 dark:text-red-400 text-center text-sm p-2 bg-red-100 dark:bg-red-900/50 rounded-md">{error}</p>}
                 <div ref={messagesEndRef} />
             </div>
             <div className="p-4 border-t border-slate-200 dark:border-slate-700 flex-shrink-0">
-                <form onSubmit={handleFormSubmit} className="flex items-center gap-2">
+                <form onSubmit={handleFormSubmit} className="flex items-center gap-2 bg-slate-100 dark:bg-slate-900/80 rounded-full border border-slate-300 dark:border-slate-700 p-1.5 focus-within:ring-2 focus-within:ring-indigo-500 transition-all">
                     <input
                         type="text"
                         value={input}
                         onChange={(e) => dispatch({ type: 'SET_INPUT', payload: e.target.value })}
                         placeholder={error ? "AI Tutor is unavailable" : "Ask or type /draw..."}
-                        className="flex-1 bg-slate-100 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 dark:text-white disabled:opacity-50"
+                        className="flex-1 bg-transparent border-none focus:ring-0 px-4 py-1 text-slate-900 dark:text-white disabled:opacity-50"
                         disabled={isLoading || !!error || isLoadingHistory}
                     />
                     <button
                         type="submit"
                         disabled={isLoading || !input.trim() || !!error || isLoadingHistory}
-                        className="bg-indigo-600 text-white p-2.5 rounded-lg disabled:bg-slate-400 dark:disabled:bg-slate-500 disabled:cursor-not-allowed hover:bg-indigo-700 transition-colors"
+                        className="bg-indigo-600 text-white p-2 rounded-full disabled:bg-slate-400 dark:disabled:bg-slate-500 disabled:cursor-not-allowed hover:bg-indigo-700 transition-colors"
+                        aria-label="Send message"
                     >
                         <SendIcon className="h-5 w-5" />
                     </button>

@@ -3,14 +3,13 @@ import type { CheckpointEvaluation, PerformanceReportData } from '@/types';
 /**
  * Defines the possible states for the main content area of the training page.
  */
-export type ActiveTab = 'steps' | 'transcript';
+export type ActiveTab = 'steps' | 'transcript' | 'tutor';
 
 /**
  * The shape of the state object managed by the training page reducer.
  * This centralizes the complex UI state for the main training interface.
  */
 export interface TrainingPageState {
-    isChatOpen: boolean;
     activeTab: ActiveTab;
 
     // Checkpoint-related state
@@ -33,7 +32,6 @@ export interface TrainingPageState {
  */
 export type TrainingPageAction =
     | { type: 'SET_ACTIVE_TAB'; payload: ActiveTab }
-    | { type: 'TOGGLE_CHAT' }
     | { type: 'SET_CHAT_PROMPT'; payload?: string }
     | { type: 'START_CHECKPOINT_EVALUATION' }
     | { type: 'CHECKPOINT_EVALUATION_SUCCESS'; payload: { evaluation: CheckpointEvaluation; isAdvancing: boolean } }
@@ -47,7 +45,6 @@ export type TrainingPageAction =
 
 
 export const initialTrainingPageState: TrainingPageState = {
-    isChatOpen: false,
     activeTab: 'steps',
     isEvaluatingCheckpoint: false,
     isAdvancing: false,
@@ -68,11 +65,9 @@ export const initialTrainingPageState: TrainingPageState = {
 export function trainingPageReducer(state: TrainingPageState, action: TrainingPageAction): TrainingPageState {
     switch (action.type) {
         case 'SET_ACTIVE_TAB':
-            return { ...state, activeTab: action.payload };
-        case 'TOGGLE_CHAT':
-            return { ...state, isChatOpen: !state.isChatOpen, initialChatPrompt: undefined };
+            return { ...state, activeTab: action.payload, initialChatPrompt: undefined };
         case 'SET_CHAT_PROMPT':
-            return { ...state, isChatOpen: true, initialChatPrompt: action.payload };
+            return { ...state, activeTab: 'tutor', initialChatPrompt: action.payload };
         case 'START_CHECKPOINT_EVALUATION':
             return { ...state, isEvaluatingCheckpoint: true, checkpointFeedback: null, instructionSuggestion: null };
         case 'CHECKPOINT_EVALUATION_SUCCESS':
@@ -105,6 +100,7 @@ export function trainingPageReducer(state: TrainingPageState, action: TrainingPa
             return {
                 ...state,
                 performanceReport: null,
+                activeTab: 'steps',
             }
         default:
             return state;

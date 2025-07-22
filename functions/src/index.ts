@@ -1,7 +1,7 @@
 
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
-import { GoogleGenAI, GenerateContentResponse, Type } from "@google/genai";
+import { GoogleGenAI } from "@google/genai";
 import { getStorage } from "firebase-admin/storage";
 
 admin.initializeApp();
@@ -9,22 +9,28 @@ const db = admin.firestore();
 const storage = getStorage();
 
 // --- AI Client & Embedding Setup ---
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// The API_KEY must be set as an environment variable in the Cloud Function settings.
+const apiKey = process.env.API_KEY;
+if (!apiKey) {
+  console.error("FATAL ERROR: API_KEY environment variable not set for Cloud Functions.");
+  throw new HttpsError(
+    "failed-precondition",
+    "The function is missing the Gemini API key. Please configure the function environment variables.",
+  );
+}
+const ai = new GoogleGenAI({ apiKey });
 
 /**
  * A secure and specific CORS configuration for all callable functions.
  * This allows requests from the local development server and the deployed frontend application.
  */
 const corsOptions = {
-  // Allow requests from localhost for development, and from the deployed frontend.
-  // Using a Regex for localhost allows any port.
   cors: [
     /^http:\/\/localhost:\d+$/,
     /^http:\/\/127\.0\.0\.1:\d+$/,
     "https://adapt-frontend-rkdt.onrender.com",
-    // Add Firebase Hosting domains for good measure in case of future deployments.
-    /web\.app$/,
-    /firebaseapp\.com$/,
+    /\.web\.app$/,
+    /\.firebaseapp\.com$/,
   ],
 };
 
@@ -219,19 +225,19 @@ export const findSimilarInteractions = onCall<{ question: string; moduleId: stri
 );
 
 const refinementSchema = {
-  type: Type.OBJECT,
+  type: "object",
   properties: {
     newDescription: {
-      type: Type.STRING,
+      type: "string",
       description: "The rewritten, clearer step description that addresses the user's points of confusion.",
     },
     newAlternativeMethod: {
-      type: Type.OBJECT,
+      type: "object",
       nullable: true,
       description: "If a completely new alternative method is warranted by the confusion, define it here. Otherwise, null.",
       properties: {
-        title: { type: Type.STRING, description: "A title for the new alternative method." },
-        description: { type: Type.STRING, description: "The description for the new alternative method." },
+        title: { type: "string", description: "A title for the new alternative method." },
+        description: { type: "string", description: "The description for the new alternative method." },
       },
     },
   },
@@ -266,7 +272,7 @@ export const refineStep = onCall<{ moduleId: string; stepIndex: number }>(
       contents: prompt,
       config: {
         responseMimeType: "application/json",
-        responseSchema: refinementSchema,
+        responseSchema: refinementSchema as any,
       },
     });
 

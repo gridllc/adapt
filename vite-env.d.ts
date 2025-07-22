@@ -1,10 +1,8 @@
-/// <reference types="vite/client" />
-
-// The reference to "vite/client" was removed to resolve a "Cannot find type definition file" error.
-// This can happen in environments where Vite's node_modules are not correctly resolved by the TypeScript server.
-// The interfaces below will augment the global ImportMeta type, which is a standard feature in modern JavaScript/TypeScript projects.
+// This file augments the global ImportMeta type and defines custom environment variables.
+// By defining them here, we get type safety and autocompletion in our code.
 
 interface ImportMetaEnv {
+  // Custom variables defined in .env files
   readonly VITE_FIREBASE_API_KEY: string;
   readonly VITE_FIREBASE_AUTH_DOMAIN: string;
   readonly VITE_FIREBASE_PROJECT_ID: string;
@@ -12,8 +10,14 @@ interface ImportMetaEnv {
   readonly VITE_FIREBASE_MESSAGING_SENDER_ID: string;
   readonly VITE_FIREBASE_APP_ID: string;
   readonly VITE_FIREBASE_MEASUREMENT_ID: string;
-  // This is for the Gemini API client-side
-  readonly VITE_GEMINI_API_KEY: string;
+  readonly VITE_API_KEY: string; // Renamed for consistency
+
+  // Vite's built-in environment variables
+  readonly BASE_URL: string;
+  readonly MODE: string;
+  readonly DEV: boolean;
+  readonly PROD: boolean;
+  readonly SSR: boolean;
 }
 
 interface ImportMeta {

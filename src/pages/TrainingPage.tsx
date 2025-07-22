@@ -31,7 +31,6 @@ const TrainingPage: React.FC = () => {
 
   const [state, dispatch] = useReducer(trainingPageReducer, initialTrainingPageState);
   const {
-    isChatOpen,
     activeTab,
     isEvaluatingCheckpoint,
     isAdvancing,
@@ -450,6 +449,14 @@ const TrainingPage: React.FC = () => {
                   <FileTextIcon className="h-5 w-5" />
                   <span>Transcript</span>
                 </button>
+                <button
+                  onClick={() => dispatch({ type: 'SET_ACTIVE_TAB', payload: 'tutor' })}
+                  className={`flex-1 p-4 font-semibold text-sm flex items-center justify-center gap-2 transition-colors ${activeTab === 'tutor' ? 'bg-slate-100 dark:bg-slate-700 text-slate-900 dark:text-white' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100/50 dark:hover:bg-slate-700/50'
+                    }`}
+                >
+                  <BotIcon className="h-5 w-5" />
+                  <span>AI Tutor</span>
+                </button>
               </div>
 
               {activeTab === 'steps' && (
@@ -487,38 +494,26 @@ const TrainingPage: React.FC = () => {
                   </div>
                 )
               )}
+
+              {activeTab === 'tutor' && moduleId && sessionToken && moduleData && (
+                <ChatTutor
+                  moduleId={moduleId}
+                  sessionToken={sessionToken}
+                  stepsContext={stepsContext}
+                  fullTranscript={fullTranscript}
+                  onTimestampClick={handleSeekTo}
+                  currentStepIndex={currentStepIndex}
+                  steps={steps}
+                  onClose={() => dispatch({ type: 'SET_ACTIVE_TAB', payload: 'steps' })}
+                  initialPrompt={initialChatPrompt}
+                  isDebug={isDebug}
+                />
+              )}
             </>
           )}
 
         </div>
       </main>
-
-      {!isChatOpen && !isCompleted && (
-        <button
-          onClick={() => dispatch({ type: 'TOGGLE_CHAT' })}
-          className="fixed bottom-6 right-6 bg-indigo-600 text-white p-4 rounded-full shadow-lg hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-900 focus:ring-indigo-500 transition-transform transform hover:scale-110"
-          aria-label="Open AI Tutor"
-        >
-          <BotIcon className="h-6 w-6" />
-        </button>
-      )}
-
-      {isChatOpen && moduleId && sessionToken && moduleData && stepsContext && (
-        <div className="fixed bottom-6 right-6 h-[85vh] w-[90vw] max-w-md bg-white/80 dark:bg-slate-800/80 backdrop-blur-xl rounded-2xl shadow-2xl flex flex-col border border-slate-200 dark:border-slate-700 z-50 animate-fade-in-up">
-          <ChatTutor
-            moduleId={moduleId}
-            sessionToken={sessionToken}
-            stepsContext={stepsContext}
-            fullTranscript={fullTranscript}
-            onTimestampClick={handleSeekTo}
-            currentStepIndex={currentStepIndex}
-            steps={steps}
-            onClose={() => dispatch({ type: 'TOGGLE_CHAT' })}
-            initialPrompt={initialChatPrompt}
-            isDebug={isDebug}
-          />
-        </div>
-      )}
     </>
   );
 };

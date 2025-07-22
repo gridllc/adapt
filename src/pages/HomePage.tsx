@@ -171,7 +171,7 @@ const HomePage: React.FC = () => {
                                 if (!module.slug) return null; // Prevent rendering modules without a slug
 
                                 return (
-                                    <div key={module.slug} className="w-full text-left p-6 bg-white dark:bg-slate-800 rounded-xl hover:ring-2 hover:ring-indigo-500 transition-all duration-300 transform hover:-translate-y-1 shadow-md dark:shadow-lg relative group">
+                                    <div key={module.slug} className="w-full text-left p-6 bg-white dark:bg-slate-800 rounded-xl hover:ring-2 hover:ring-indigo-500 transition-all duration-300 transform hover:-translate-y-1 shadow-md dark:shadow-lg hover:shadow-xl dark:hover:shadow-indigo-500/20 relative group">
                                         <div className="flex justify-between items-start mb-4">
                                             <div className="flex items-center gap-4">
                                                 <div className="bg-indigo-100 dark:bg-indigo-600/30 p-3 rounded-lg">
