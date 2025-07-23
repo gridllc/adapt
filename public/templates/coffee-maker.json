@@ -4,8 +4,16 @@
   "category": "Kitchen",
   "ai_context_notes": "This is a standard 12-cup drip coffee maker. Focus on the core steps of adding water, a filter, coffee grounds, and starting the brew cycle.",
   "buttons": [
-    { "name": "Power/Brew", "symbol": "⏻", "function": "Toggles the machine on or off and starts the brewing process." },
-    { "name": "Carafe", "symbol": "🏺", "function": "The glass pot that holds the brewed coffee." }
+    {
+      "name": "Power/Brew",
+      "symbol": "⏻",
+      "function": "Toggles the machine on or off and starts the brewing process."
+    },
+    {
+      "name": "Carafe",
+      "symbol": "🏺",
+      "function": "The glass pot that holds the brewed coffee."
+    }
   ],
   "steps": [
     {

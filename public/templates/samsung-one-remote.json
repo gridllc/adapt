@@ -5,10 +5,26 @@
   "multi_remote_prompt": "Do you use more than one remote to control this TV setup (e.g., one for TV power, another for cable/sound)?",
   "ai_context_notes": "This setup may involve two remotes. Remote A is the primary Samsung remote for power and navigation. Remote B is a secondary remote for channels and volume. Always clarify which remote the user should be using.",
   "buttons": [
-    { "name": "Power", "symbol": "⏻", "function": "Turns the TV on or off." },
-    { "name": "Navigation Ring", "symbol": "○", "function": "Navigates menus (up, down, left, right). Press center to select." },
-    { "name": "Volume", "symbol": "+/-", "function": "Controls the sound volume." },
-    { "name": "Channel", "symbol": "CH", "function": "Changes the channel." }
+    {
+      "name": "Power",
+      "symbol": "⏻",
+      "function": "Turns the TV on or off."
+    },
+    {
+      "name": "Navigation Ring",
+      "symbol": "○",
+      "function": "Navigates menus (up, down, left, right). Press center to select."
+    },
+    {
+      "name": "Volume",
+      "symbol": "+/-",
+      "function": "Controls the sound volume."
+    },
+    {
+      "name": "Channel",
+      "symbol": "CH",
+      "function": "Changes the channel."
+    }
   ],
   "steps": [
     {

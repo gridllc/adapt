@@ -6,18 +6,54 @@
   "description": "Guide for using the Fire TV remote with voice and streaming features.",
   "ai_context_notes": "Fire TV remotes have Alexa voice, a navigation ring, and streaming playback buttons. This guide emphasizes hands-on learning and voice command practice.",
   "buttons": [
-    { "name": "⏻ Power", "function": "Turns the TV on/off if paired" },
-    { "name": "🎤 Microphone", "function": "Hold to speak Alexa voice commands" },
-    { "name": "Navigation Ring", "function": "Move Up/Down/Left/Right through menus" },
-    { "name": "✔ Select", "function": "Choose the selected item" },
-    { "name": "← Back", "function": "Return to previous screen" },
-    { "name": "🏠 Home", "function": "Go to the main screen" },
-    { "name": "≡ Menu", "function": "Open options or settings" },
-    { "name": "⏪ Rewind", "function": "Skip backwards" },
-    { "name": "⏯ Play/Pause", "function": "Start or stop playback" },
-    { "name": "⏩ Fast-Forward", "function": "Skip ahead" },
-    { "name": "🔊 Volume + / -", "function": "Adjust sound if connected to TV" },
-    { "name": "🔇 Mute", "function": "Silence sound" }
+    {
+      "name": "⏻ Power",
+      "function": "Turns the TV on/off if paired"
+    },
+    {
+      "name": "🎤 Microphone",
+      "function": "Hold to speak Alexa voice commands"
+    },
+    {
+      "name": "Navigation Ring",
+      "function": "Move Up/Down/Left/Right through menus"
+    },
+    {
+      "name": "✔ Select",
+      "function": "Choose the selected item"
+    },
+    {
+      "name": "← Back",
+      "function": "Return to previous screen"
+    },
+    {
+      "name": "🏠 Home",
+      "function": "Go to the main screen"
+    },
+    {
+      "name": "≡ Menu",
+      "function": "Open options or settings"
+    },
+    {
+      "name": "⏪ Rewind",
+      "function": "Skip backwards"
+    },
+    {
+      "name": "⏯ Play/Pause",
+      "function": "Start or stop playback"
+    },
+    {
+      "name": "⏩ Fast-Forward",
+      "function": "Skip ahead"
+    },
+    {
+      "name": "🔊 Volume + / -",
+      "function": "Adjust sound if connected to TV"
+    },
+    {
+      "name": "🔇 Mute",
+      "function": "Silence sound"
+    }
   ],
   "steps": [
     {

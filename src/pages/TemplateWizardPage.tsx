@@ -67,7 +67,9 @@ const TemplateWizardPage: React.FC = () => {
             }
 
             const moduleSteps: ProcessStep[] = finalSteps.map(s => ({
-                ...s,
+                title: s.title,
+                description: s.description,
+                remoteType: s.remoteType ?? null, // Explicitly handle undefined -> null
                 start: 0,
                 end: 0,
                 checkpoint: null,
