@@ -13,11 +13,11 @@ interface ImportMetaEnv {
   readonly VITE_API_KEY: string; // Renamed for consistency
 
   // Vite's built-in environment variables
-  readonly BASE_URL: string;
-  readonly MODE: string;
-  readonly DEV: boolean;
-  readonly PROD: boolean;
-  readonly SSR: boolean;
+  BASE_URL: string;
+  MODE: string;
+  DEV: boolean;
+  PROD: boolean;
+  SSR: boolean;
 }
 
 interface ImportMeta {
