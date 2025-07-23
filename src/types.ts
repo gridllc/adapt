@@ -11,14 +11,12 @@ export type Json =
 export interface AlternativeMethod {
     title: string;
     description: string;
-    [key: string]: Json | undefined;
 }
 
 export interface TranscriptLine {
     start: number;
     end: number;
     text: string;
-    [key: string]: Json | undefined;
 }
 
 export interface ProcessStep {
@@ -29,7 +27,6 @@ export interface ProcessStep {
     checkpoint: string | null;
     alternativeMethods: AlternativeMethod[];
     remoteType?: 'A' | 'B' | null;
-    [key: string]: Json | undefined;
 }
 
 export type TemplateContext = {
@@ -102,7 +99,6 @@ export interface VideoMetadata {
     duration: number;
     width: number;
     height: number;
-    [key: string]: Json | undefined;
 }
 
 export interface ChatMessage {

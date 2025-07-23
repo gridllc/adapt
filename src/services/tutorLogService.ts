@@ -19,7 +19,7 @@ interface TutorLogPayload {
     tutorResponse: string;
     templateId?: string | null;
     stepTitle?: string | null;
-    remoteType?: 'A' | 'B' | null;
+    remoteType?: 'A' | 'B' | 'ai-routine' | null;
     aliases?: DetectedAlias[];
 }
 

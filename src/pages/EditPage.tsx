@@ -1,16 +1,16 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useParams, useNavigate, Link, useLocation } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { getModule, saveModule, deleteModule } from '../services/moduleService';
-import { getTraineeSuggestionsForModule, deleteTraineeSuggestion, getAiSuggestionsForModule } from '../services/suggestionsService';
-import { getCheckpointResponsesForModule } from '../services/checkpointService';
-import { ModuleEditor } from '../components/ModuleEditor';
-import { VideoPlayer } from '../components/VideoPlayer';
-import type { AlternativeMethod, TraineeSuggestion, ProcessStep, AiSuggestion, AppModule, CheckpointResponse, ModuleForInsert } from '../types';
-import { TrashIcon, VideoIcon, AlertTriangleIcon, RefreshCwIcon, SparklesIcon } from '../components/Icons';
-import { useAuth } from '../hooks/useAuth';
-import { useToast } from '../hooks/useToast';
-import { useSafeVideoUrl } from '../hooks/useSafeVideoUrl';
+import { getModule, saveModule, deleteModule } from '@/services/moduleService';
+import { getTraineeSuggestionsForModule, deleteTraineeSuggestion, getAiSuggestionsForModule } from '@/services/suggestionsService';
+import { getCheckpointResponsesForModule } from '@/services/checkpointService';
+import { ModuleEditor } from '@/components/ModuleEditor';
+import { VideoPlayer } from '@/components/VideoPlayer';
+import type { AlternativeMethod, TraineeSuggestion, ProcessStep, AiSuggestion, AppModule, CheckpointResponse, ModuleForInsert, Json } from '@/types';
+import { TrashIcon, VideoIcon, AlertTriangleIcon, RefreshCwIcon, SparklesIcon } from '@/components/Icons';
+import { useAuth } from '@/hooks/useAuth';
+import { useToast } from '@/hooks/useToast';
+import { useSafeVideoUrl } from '@/hooks/useSafeVideoUrl';
 
 
 const EditPage: React.FC = () => {
@@ -175,13 +175,19 @@ const EditPage: React.FC = () => {
         try {
             // The video file is not being re-uploaded here.
             // The video_url should persist from the initial load.
+            const moduleToSave: ModuleForInsert = {
+                slug: module.slug,
+                title: module.title,
+                steps: module.steps as unknown as Json,
+                transcript: module.transcript as unknown as Json,
+                video_url: module.video_url,
+                metadata: module.metadata,
+                user_id: user.uid,
+                created_at: module.created_at,
+            };
+
             const savedModule = await saveModule({
-                moduleData: {
-                    ...module,
-                    user_id: user.uid,
-                    steps: module.steps,
-                    transcript: module.transcript
-                } as ModuleForInsert,
+                moduleData: moduleToSave,
                 videoFile: null
             });
             await queryClient.invalidateQueries({ queryKey: ['module', savedModule.slug] });
