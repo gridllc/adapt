@@ -3,14 +3,13 @@
 // with the database and Vertex AI for embedding and search.
 
 import { functions } from '@/firebase';
-import { httpsCallable } from 'firebase/functions';
 import type { AIFeedbackLog, SimilarFix } from '@/types';
 
 // --- Callable Firebase Functions ---
-const logAiFeedbackFn = httpsCallable(functions, 'logAiFeedback');
-const updateFeedbackWithFixFn = httpsCallable(functions, 'updateFeedbackWithFix');
-const findSimilarFixesFn = httpsCallable(functions, 'findSimilarFixes');
-const getPastFeedbackForStepFn = httpsCallable(functions, 'getPastFeedbackForStep');
+const logAiFeedbackFn = functions.httpsCallable('logAiFeedback');
+const updateFeedbackWithFixFn = functions.httpsCallable('updateFeedbackWithFix');
+const findSimilarFixesFn = functions.httpsCallable('findSimilarFixes');
+const getPastFeedbackForStepFn = functions.httpsCallable('getPastFeedbackForStep');
 
 
 export const logAiFeedback = async (feedbackData: Omit<AIFeedbackLog, 'id' | 'createdAt'>): Promise<string> => {

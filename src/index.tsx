@@ -42,91 +42,93 @@ if (!rootElement) {
 
 const queryClient = new QueryClient();
 
-const router = createBrowserRouter([
-    {
-        path: '/',
-        element: <RootLayout />,
-        children: [
-            {
-                index: true,
-                element: <HomePage />,
-            },
-            {
-                path: 'login',
-                element: <LoginPage />,
-            },
-            {
-                path: 'reset-password',
-                element: <ForgotPasswordPage />,
-            },
-            {
-                path: 'update-password',
-                element: <UpdatePasswordPage />,
-            },
-            {
-                element: (
-                    <ProtectedRoute>
-                        <AdminLayout />
-                    </ProtectedRoute>
-                ),
-                children: [
-                    {
-                        path: 'dashboard',
-                        element: <DashboardPage />,
-                    },
-                    {
-                        path: 'dashboard/routines',
-                        element: <RoutineDashboardPage />
-                    },
-                    {
-                        path: 'dashboard/routines/editor',
-                        element: <RoutineEditorPage />
-                    },
-                    {
-                        path: 'dashboard/routines/editor/:routineId',
-                        element: <RoutineEditorPage />
-                    },
-                    {
-                        path: 'dashboard/questions',
-                        element: <FaqPage />
-                    },
-                    {
-                        path: 'dashboard/questions/:moduleId/:stepIndex/:encodedQuestion',
-                        element: <QuestionLogDetailPage />,
-                    },
-                    {
-                        path: 'modules/:moduleId/edit',
-                        element: <EditPage />,
-                    },
-                    {
-                        path: 'modules/:moduleId/live',
-                        element: <LiveCoachPage />,
-                    },
-                    {
-                        path: 'sessions/:moduleId/:session_key/review',
-                        element: <SessionReviewPage />,
-                    },
-                    {
-                        path: 'create',
-                        element: <CreatePage />,
-                    },
-                    {
-                        path: 'templates/:templateId',
-                        element: <TemplateWizardPage />
-                    }
-                ]
-            },
-            {
-                path: 'modules/:moduleId',
-                element: <TrainingPage />,
-            },
-            {
-                path: '*',
-                element: <NotFoundPage />,
-            }
-        ],
-    },
-]);
+const router = createBrowserRouter(
+    [
+        {
+            path: '/',
+            element: <RootLayout />,
+            children: [
+                {
+                    index: true,
+                    element: <HomePage />,
+                },
+                {
+                    path: 'login',
+                    element: <LoginPage />,
+                },
+                {
+                    path: 'reset-password',
+                    element: <ForgotPasswordPage />,
+                },
+                {
+                    path: 'update-password',
+                    element: <UpdatePasswordPage />,
+                },
+                {
+                    element: (
+                        <ProtectedRoute>
+                            <AdminLayout />
+                        </ProtectedRoute>
+                    ),
+                    children: [
+                        {
+                            path: 'dashboard',
+                            element: <DashboardPage />,
+                        },
+                        {
+                            path: 'dashboard/routines',
+                            element: <RoutineDashboardPage />
+                        },
+                        {
+                            path: 'dashboard/routines/editor',
+                            element: <RoutineEditorPage />
+                        },
+                        {
+                            path: 'dashboard/routines/editor/:routineId',
+                            element: <RoutineEditorPage />
+                        },
+                        {
+                            path: 'dashboard/questions',
+                            element: <FaqPage />
+                        },
+                        {
+                            path: 'dashboard/questions/:moduleId/:stepIndex/:encodedQuestion',
+                            element: <QuestionLogDetailPage />,
+                        },
+                        {
+                            path: 'modules/:moduleId/edit',
+                            element: <EditPage />,
+                        },
+                        {
+                            path: 'modules/:moduleId/live',
+                            element: <LiveCoachPage />,
+                        },
+                        {
+                            path: 'sessions/:moduleId/:session_key/review',
+                            element: <SessionReviewPage />,
+                        },
+                        {
+                            path: 'create',
+                            element: <CreatePage />,
+                        },
+                        {
+                            path: 'templates/:templateId',
+                            element: <TemplateWizardPage />
+                        }
+                    ]
+                },
+                {
+                    path: 'modules/:moduleId',
+                    element: <TrainingPage />,
+                },
+                {
+                    path: '*',
+                    element: <NotFoundPage />,
+                }
+            ],
+        },
+    ]
+);
 
 
 const root = ReactDOM.createRoot(rootElement);

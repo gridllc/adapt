@@ -1,12 +1,9 @@
-
-
 import { functions } from '@/firebase';
-import { httpsCallable } from 'firebase/functions';
 import type { ChatMessage } from '@/types';
 
-const getChatHistoryFn = httpsCallable(functions, 'getChatHistory');
-const saveChatMessageFn = httpsCallable(functions, 'saveChatMessage');
-const updateMessageFeedbackFn = httpsCallable(functions, 'updateMessageFeedback');
+const getChatHistoryFn = functions.httpsCallable('getChatHistory');
+const saveChatMessageFn = functions.httpsCallable('saveChatMessage');
+const updateMessageFeedbackFn = functions.httpsCallable('updateMessageFeedback');
 
 export const getChatHistory = async (moduleId: string, sessionToken: string): Promise<ChatMessage[]> => {
     try {

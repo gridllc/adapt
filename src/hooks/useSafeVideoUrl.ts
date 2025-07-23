@@ -1,6 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
 import { functions } from '@/firebase';
-import { httpsCallable } from 'firebase/functions';
 
 interface UseSafeVideoUrlResult {
   videoUrl: string | null;
@@ -10,7 +9,7 @@ interface UseSafeVideoUrlResult {
 }
 
 // This function calls a (to-be-created) Firebase Function to get a secure download URL.
-const getSignedDownloadUrl = httpsCallable(functions, 'getSignedDownloadUrl');
+const getSignedDownloadUrl = functions.httpsCallable('getSignedDownloadUrl');
 
 
 /**

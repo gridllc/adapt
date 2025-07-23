@@ -1,14 +1,11 @@
-
-
 import type { SessionSummary, SessionState } from '@/types';
 import { functions } from '@/firebase';
-import { httpsCallable } from 'firebase/functions';
 
-const getSessionFn = httpsCallable(functions, 'getSession');
-const saveSessionFn = httpsCallable(functions, 'saveSession');
-const getSessionSummaryFn = httpsCallable(functions, 'getSessionSummary');
-const getTotalSessionCountFn = httpsCallable(functions, 'getTotalSessionCount');
-const getCompletedSessionCountFn = httpsCallable(functions, 'getCompletedSessionCount');
+const getSessionFn = functions.httpsCallable('getSession');
+const saveSessionFn = functions.httpsCallable('saveSession');
+const getSessionSummaryFn = functions.httpsCallable('getSessionSummary');
+const getTotalSessionCountFn = functions.httpsCallable('getTotalSessionCount');
+const getCompletedSessionCountFn = functions.httpsCallable('getCompletedSessionCount');
 
 export const getSession = async (moduleId: string, sessionToken: string): Promise<SessionState | null> => {
     try {

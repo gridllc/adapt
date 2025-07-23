@@ -1,7 +1,6 @@
 import { functions } from '@/firebase';
-import { httpsCallable } from 'firebase/functions';
 
-const getSignedManualUploadUrlFn = httpsCallable(functions, 'getSignedManualUploadUrl');
+const getSignedManualUploadUrlFn = functions.httpsCallable('getSignedManualUploadUrl');
 
 /**
  * Uploads a user-provided manual to a secure cloud storage location for later processing.
@@ -33,7 +32,7 @@ export const uploadManualForProcessing = async (file: File): Promise<string> => 
         if (!uploadResponse.ok) {
             throw new Error(`Cloud storage upload failed: ${uploadResponse.statusText}`);
         }
-        
+
         return filePath;
     } catch (error) {
         console.error("Failed to upload manual:", error);

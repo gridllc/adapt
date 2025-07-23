@@ -1,13 +1,9 @@
-
-
-
 import type { CheckpointResponse } from '@/types';
 import { functions } from '@/firebase';
-import { httpsCallable } from 'firebase/functions';
 
-const logCheckpointResponseFn = httpsCallable(functions, 'logCheckpointResponse');
-const getCheckpointResponsesForModuleFn = httpsCallable(functions, 'getCheckpointResponsesForModule');
-const getCheckpointFailureStatsFn = httpsCallable(functions, 'getCheckpointFailureStats');
+const logCheckpointResponseFn = functions.httpsCallable('logCheckpointResponse');
+const getCheckpointResponsesForModuleFn = functions.httpsCallable('getCheckpointResponsesForModule');
+const getCheckpointFailureStatsFn = functions.httpsCallable('getCheckpointFailureStats');
 // const sendCheckpointFailuresToSlackFn = httpsCallable(functions, 'sendCheckpointFailuresToSlack');
 
 export async function logCheckpointResponse(response: Omit<CheckpointResponse, 'id' | 'created_at'>): Promise<void> {

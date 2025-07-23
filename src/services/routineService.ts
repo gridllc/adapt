@@ -1,12 +1,11 @@
 import { functions } from '@/firebase';
-import { httpsCallable } from 'firebase/functions';
 import type { Routine } from '@/types';
 
-const getRoutinesForTemplateFn = httpsCallable(functions, 'getRoutinesForTemplate');
-const saveRoutineFn = httpsCallable(functions, 'saveRoutine');
-const deleteRoutineFn = httpsCallable(functions, 'deleteRoutine');
-const getSignedRoutineVideoUploadUrlFn = httpsCallable(functions, 'getSignedRoutineVideoUploadUrl');
-const getRoutineForIntentFn = httpsCallable(functions, 'getRoutineForIntent');
+const getRoutinesForTemplateFn = functions.httpsCallable('getRoutinesForTemplate');
+const saveRoutineFn = functions.httpsCallable('saveRoutine');
+const deleteRoutineFn = functions.httpsCallable('deleteRoutine');
+const getSignedRoutineVideoUploadUrlFn = functions.httpsCallable('getSignedRoutineVideoUploadUrl');
+const getRoutineForIntentFn = functions.httpsCallable('getRoutineForIntent');
 
 export const getRoutinesForTemplate = async (templateId: string): Promise<Routine[]> => {
     const result = await getRoutinesForTemplateFn({ templateId });
@@ -33,13 +32,13 @@ export const saveRoutine = async (routine: Omit<Routine, 'id'> & { id?: string }
             contentType: videoFile.type,
         });
         const { uploadUrl, filePath } = result.data as { uploadUrl: string; filePath: string };
-        
+
         await fetch(uploadUrl, {
             method: 'PUT',
             headers: { 'Content-Type': videoFile.type },
             body: videoFile,
         });
-        
+
         videoUrlPath = filePath;
     }
 

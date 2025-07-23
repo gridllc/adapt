@@ -2,7 +2,6 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { db } from '@/firebase';
-import { doc, getDoc } from 'firebase/firestore';
 import { saveRoutine } from '@/services/routineService';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/useToast';
@@ -29,9 +28,9 @@ const RoutineEditorPage: React.FC = () => {
     useEffect(() => {
         const fetchRoutine = async () => {
             if (routineId) {
-                const docRef = doc(db, "routines", routineId);
-                const docSnap = await getDoc(docRef);
-                if (docSnap.exists()) {
+                const docRef = db.collection("routines").doc(routineId);
+                const docSnap = await docRef.get();
+                if (docSnap.exists) {
                     setRoutine({ id: docSnap.id, ...docSnap.data() } as Routine);
                 } else {
                     addToast('error', 'Not Found', 'Routine not found.');
@@ -70,7 +69,7 @@ const RoutineEditorPage: React.FC = () => {
                 userId: user.uid,
                 steps: routine.steps?.filter(s => s.trim()) || [],
             } as Omit<Routine, 'id'> & { id?: string };
-            
+
             await saveRoutine(routineToSave, videoFile);
             addToast('success', 'Routine Saved', 'Your routine has been saved successfully.');
             navigate('/dashboard/routines');
@@ -109,7 +108,7 @@ const RoutineEditorPage: React.FC = () => {
                 </div>
                 <div>
                     <label className="block text-sm font-medium mb-1">Optional Video</label>
-                    <input type="file" accept="video/*" onChange={e => setVideoFile(e.target.files ? e.target.files[0] : null)} className="w-full text-sm file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"/>
+                    <input type="file" accept="video/*" onChange={e => setVideoFile(e.target.files ? e.target.files[0] : null)} className="w-full text-sm file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100" />
                     {routine.videoUrl && !videoFile && <p className="text-xs mt-1">Current video: <a href={routine.videoUrl} target="_blank" rel="noopener noreferrer" className="text-indigo-500">{routine.videoUrl.split('/').pop()}</a></p>}
                 </div>
                 <div className="flex justify-end gap-4 pt-4 border-t dark:border-slate-700">

@@ -1,18 +1,14 @@
-
-
-
 import { functions } from '@/firebase';
-import { httpsCallable } from 'firebase/functions';
 import type { TraineeSuggestion, AiSuggestion, RefinementSuggestion } from '@/types';
 
-const refineStepFn = httpsCallable(functions, 'refineStep');
-const submitSuggestionFn = httpsCallable(functions, 'submitSuggestion');
-const getTraineeSuggestionsForModuleFn = httpsCallable(functions, 'getTraineeSuggestionsForModule');
-const getAllPendingSuggestionsFn = httpsCallable(functions, 'getAllPendingSuggestions');
-const deleteTraineeSuggestionFn = httpsCallable(functions, 'deleteTraineeSuggestion');
-const saveAiSuggestionFn = httpsCallable(functions, 'saveAiSuggestion');
-const getAiSuggestionsForModuleFn = httpsCallable(functions, 'getAiSuggestionsForModule');
-const getLatestAiSuggestionForStepFn = httpsCallable(functions, 'getLatestAiSuggestionForStep');
+const refineStepFn = functions.httpsCallable('refineStep');
+const submitSuggestionFn = functions.httpsCallable('submitSuggestion');
+const getTraineeSuggestionsForModuleFn = functions.httpsCallable('getTraineeSuggestionsForModule');
+const getAllPendingSuggestionsFn = functions.httpsCallable('getAllPendingSuggestions');
+const deleteTraineeSuggestionFn = functions.httpsCallable('deleteTraineeSuggestion');
+const saveAiSuggestionFn = functions.httpsCallable('saveAiSuggestion');
+const getAiSuggestionsForModuleFn = functions.httpsCallable('getAiSuggestionsForModule');
+const getLatestAiSuggestionForStepFn = functions.httpsCallable('getLatestAiSuggestionForStep');
 
 export const refineStep = async (moduleId: string, stepIndex: number): Promise<{ error?: string, suggestion: RefinementSuggestion }> => {
     const result = await refineStepFn({ moduleId, stepIndex });

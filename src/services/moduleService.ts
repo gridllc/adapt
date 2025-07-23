@@ -4,18 +4,15 @@
 
 import type { AppModule, AppModuleWithStats, ModuleForInsert } from '@/types';
 import { functions } from '@/firebase';
-import { httpsCallable } from 'firebase/functions';
-
-
 
 // --- Callable Firebase Functions ---
 // Note: The backend implementation for these functions must exist and be deployed.
 
-const getModuleFn = httpsCallable(functions, 'getModule');
-const getSignedUploadUrlFn = httpsCallable(functions, 'getSignedUploadUrl');
-const saveModuleFn = httpsCallable(functions, 'saveModule');
-const getAvailableModulesFn = httpsCallable(functions, 'getAvailableModules');
-const deleteModuleFn = httpsCallable(functions, 'deleteModule');
+const getModuleFn = functions.httpsCallable('getModule');
+const getSignedUploadUrlFn = functions.httpsCallable('getSignedUploadUrl');
+const saveModuleFn = functions.httpsCallable('saveModule');
+const getAvailableModulesFn = functions.httpsCallable('getAvailableModules');
+const deleteModuleFn = functions.httpsCallable('deleteModule');
 
 
 // --- Implemented Functions ---

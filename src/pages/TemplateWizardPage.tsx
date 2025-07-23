@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/hooks/useToast';
@@ -55,7 +55,7 @@ const TemplateWizardPage: React.FC = () => {
         fetchTemplate();
     }, [templateId]);
 
-    const handleCreateModule = async () => {
+    const handleCreateModule = useCallback(async () => {
         if (!template || !user) return;
         setIsSaving(true);
         addToast('info', 'Generating Module...', 'Your new training module is being created.');
@@ -100,7 +100,17 @@ const TemplateWizardPage: React.FC = () => {
             addToast('error', 'Creation Failed', errorMessage);
             setIsSaving(false);
         }
-    };
+    }, [template, user, multiRemoteAnswer, addToast, queryClient, navigate]);
+
+    // This hook must be called at the top level, before any early returns.
+    useEffect(() => {
+        // If there are no wizard steps (like a multi-remote prompt), proceed directly to creation.
+        // This is now safe because the hook is always called.
+        if (template && wizardStep === 0 && !template.multi_remote_prompt) {
+            handleCreateModule();
+        }
+    }, [template, wizardStep, handleCreateModule]);
+
 
     if (isLoading) {
         return <div className="text-center p-8">Loading template...</div>;
@@ -133,15 +143,6 @@ const TemplateWizardPage: React.FC = () => {
             </div>
         </div>
     );
-    
-    useEffect(() => {
-        // If there are no wizard steps, proceed directly to creation
-        if (template && wizardStep === 0 && !template.multi_remote_prompt) {
-            handleCreateModule();
-        }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [template, wizardStep]);
-
 
     return (
         <div className="w-full max-w-screen-md mx-auto px-4 py-8">
@@ -154,13 +155,13 @@ const TemplateWizardPage: React.FC = () => {
                 <p className="text-xl font-semibold text-indigo-500 dark:text-indigo-400 mb-8">{template.title}</p>
 
                 {wizardStep === 0 && template.multi_remote_prompt && renderMultiRemoteStep()}
-                
+
                 {wizardStep === 1 && (
                     <div className="animate-fade-in-up">
                         <SparklesIcon className="h-12 w-12 mx-auto text-indigo-500 dark:text-indigo-400 animate-pulse mb-4" />
                         <h2 className="text-xl text-slate-800 dark:text-slate-200">Ready to create your module!</h2>
                         <p className="text-slate-500 dark:text-slate-400 mb-6">Click the button below to generate the training steps.</p>
-                         <button
+                        <button
                             onClick={handleCreateModule}
                             disabled={isSaving}
                             className="bg-green-600 text-white font-bold py-3 px-8 rounded-lg disabled:bg-slate-400 dark:disabled:bg-slate-500 disabled:cursor-not-allowed hover:bg-green-700 transition-colors transform hover:scale-105 flex items-center justify-center gap-2 mx-auto"
