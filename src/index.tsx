@@ -13,6 +13,8 @@ import LoginPage from '@/pages/LoginPage';
 import ForgotPasswordPage from '@/pages/ForgotPasswordPage';
 import UpdatePasswordPage from '@/pages/UpdatePasswordPage';
 import DashboardPage from './pages/DashboardPage';
+import RoutineDashboardPage from './pages/RoutineDashboardPage';
+import RoutineEditorPage from './pages/RoutineEditorPage';
 import FaqPage from '@/pages/FaqPage';
 import NotFoundPage from '@/pages/NotFoundPage';
 import ProtectedRoute from '@/components/ProtectedRoute';
@@ -26,6 +28,7 @@ import { PwaUpdater } from '@/components/PwaUpdater';
 import QuestionLogDetailPage from '@/pages/QuestionLogDetailPage';
 import AdminLayout from '@/components/AdminLayout';
 import { auth } from '@/firebase';
+import TemplateWizardPage from './pages/TemplateWizardPage';
 
 // Expose Firebase auth for debugging in development mode
 if (import.meta.env.DEV) {
@@ -72,6 +75,18 @@ const router = createBrowserRouter([
                         element: <DashboardPage />,
                     },
                     {
+                        path: 'dashboard/routines',
+                        element: <RoutineDashboardPage />
+                    },
+                    {
+                        path: 'dashboard/routines/editor',
+                        element: <RoutineEditorPage />
+                    },
+                    {
+                        path: 'dashboard/routines/editor/:routineId',
+                        element: <RoutineEditorPage />
+                    },
+                    {
                         path: 'dashboard/questions',
                         element: <FaqPage />
                     },
@@ -95,6 +110,10 @@ const router = createBrowserRouter([
                         path: 'create',
                         element: <CreatePage />,
                     },
+                    {
+                        path: 'templates/:templateId',
+                        element: <TemplateWizardPage />
+                    }
                 ]
             },
             {

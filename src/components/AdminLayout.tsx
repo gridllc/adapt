@@ -11,7 +11,8 @@ import {
     MoonIcon,
     BookOpenIcon,
     MenuIcon,
-    XIcon
+    XIcon,
+    PlayCircleIcon
 } from '@/components/Icons';
 
 const AdminLayout: React.FC = () => {
@@ -21,6 +22,7 @@ const AdminLayout: React.FC = () => {
 
     const navLinks = [
         { to: '/dashboard', label: 'Dashboard', icon: BarChartIcon },
+        { to: '/dashboard/routines', label: 'Routines', icon: PlayCircleIcon },
         { to: '/create', label: 'Create Module', icon: LightbulbIcon },
         { to: '/dashboard/questions', label: 'Question Log', icon: HelpCircleIcon },
         { to: '/', label: 'Home', icon: BookOpenIcon },
@@ -60,7 +62,7 @@ const AdminLayout: React.FC = () => {
                 </nav>
                 <div className="p-4 border-t border-slate-200 dark:border-slate-700">
                     <div className="flex items-center justify-between mb-4">
-                        <span className="text-xs text-slate-500 dark:text-slate-400 truncate" title={user?.email ?? ''}>{user?.email}</span>
+                        <span className="text-xs text-slate-500 dark:text-slate-400 truncate" title={user?.email || ''}>{user?.email}</span>
                         <button
                             onClick={toggleTheme}
                             className="p-2 rounded-full bg-slate-100 dark:bg-slate-700/50 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700"

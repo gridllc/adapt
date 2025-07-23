@@ -1,4 +1,6 @@
 
+
+
 export type Json =
     | string
     | number
@@ -27,6 +29,7 @@ export interface ProcessStep {
     description: string;
     checkpoint: string | null;
     alternativeMethods: AlternativeMethod[];
+    remoteType?: 'A' | 'B' | null;
     [key: string]: Json | undefined;
 }
 
@@ -37,7 +40,15 @@ export interface AppModule {
     steps: ProcessStep[];
     transcript: TranscriptLine[];
     created_at: string;
-    metadata: Json | null;
+    metadata: {
+        is_ai_generated?: boolean;
+        templateId?: string;
+        templateContext?: {
+            ai_context_notes?: string;
+            buttons?: any[];
+        };
+        [key: string]: Json | undefined;
+    } | null;
     user_id: string | null;
     video_url: string | null;
 }
@@ -103,6 +114,7 @@ export interface ChatMessage {
     feedback?: 'good' | 'bad' | null;
     memoryMatches?: TutorLog[];
     embeddingSource?: string;
+    isRoutine?: boolean; // Flag for styling routine-based answers
 }
 
 export interface GroundingChunk {
@@ -267,6 +279,8 @@ export interface TutorLogRow {
     user_question: string;
     tutor_response: string;
     created_at: string | null;
+    step_title?: string;
+    remote_type?: 'A' | 'B' | 'ai-routine' | null;
 }
 
 export interface AIFeedbackLog {
@@ -286,4 +300,15 @@ export interface SimilarFix {
     id: string;
     userFixText: string;
     similarity: number;
+}
+
+export interface Routine {
+    id: string;
+    templateId: string; // The module slug this routine belongs to
+    intent: string;
+    steps: string[];
+    videoUrl?: string | null;
+    userId: string;
+    createdAt?: string;
+    updatedAt?: string;
 }

@@ -1,4 +1,6 @@
 
+
+
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import * as logger from "firebase-functions/logger";
 import * as admin from "firebase-admin";
@@ -98,10 +100,11 @@ export const getAvailableModules = onCall(corsOptions, async () => {
 
     return modulesSnap.docs.map(doc => {
         const moduleStats = sessionData.get(doc.id);
+        const docData = doc.data();
         return {
-            ...doc.data(),
+            ...docData,
             slug: doc.id,
-            is_ai_generated: doc.data().metadata?.is_ai_generated ?? false,
+            is_ai_generated: docData.metadata?.is_ai_generated ?? false,
             session_count: moduleStats?.count ?? 0,
             last_used_at: moduleStats?.lastUsed,
         };
@@ -197,6 +200,27 @@ export const getSignedUploadUrl = onCall<{ slug: string; contentType: string; fi
     return { uploadUrl: url, filePath };
 });
 
+export const getSignedManualUploadUrl = onCall<{ fileName: string; contentType: string }>(corsOptions, async (req) => {
+    const uid = req.auth?.uid;
+    if (!uid) throw new HttpsError("unauthenticated", "You must be logged in.");
+
+    const { fileName, contentType } = req.data;
+    // Sanitize filename to prevent path traversal
+    const safeFileName = fileName.replace(/[^a-zA-Z0-9_.-]/g, "_");
+    const filePath = `manuals_for_processing/${uid}/${Date.now()}_${safeFileName}`;
+
+    const file = storage.bucket().file(filePath);
+    const [url] = await file.getSignedUrl({
+        version: "v4",
+        action: "write",
+        expires: Date.now() + 15 * 60 * 1000, // 15 mins
+        contentType,
+    });
+
+    return { uploadUrl: url, filePath };
+});
+
+
 export const getSignedDownloadUrl = onCall<{ filePath: string }>(corsOptions, async (req) => {
     const { filePath } = req.data;
     if (!filePath) throw new HttpsError("invalid-argument", "A file path is required.");
@@ -263,12 +287,26 @@ export const updateMessageFeedback = onCall<{ messageId: string; feedback: "good
 
 
 // --- AI, Analytics & Feedback Functions ---
+interface DetectedAlias {
+    alias: string;
+    formalName: string;
+}
+interface LogTutorInteractionData {
+    userQuestion: string;
+    tutorResponse: string;
+    moduleId: string;
+    stepIndex: number;
+    templateId?: string;
+    stepTitle?: string;
+    remoteType?: string;
+    aliases?: DetectedAlias[];
+}
 
-export const logTutorInteraction = onCall<any>({ ...corsOptions, secrets: ["API_KEY"] }, async (req) => {
+export const logTutorInteraction = onCall<LogTutorInteractionData>({ ...corsOptions, secrets: ["API_KEY"] }, async (req) => {
     const uid = req.auth?.uid;
     if (!uid) throw new HttpsError("unauthenticated", "Authentication required.");
 
-    const { userQuestion, tutorResponse, moduleId, stepIndex } = req.data;
+    const { userQuestion, tutorResponse, moduleId, stepIndex, templateId, stepTitle, remoteType, aliases } = req.data;
 
     // --- Rate Limiting ---
     const today = new Date().toISOString().split("T")[0];
@@ -287,9 +325,45 @@ export const logTutorInteraction = onCall<any>({ ...corsOptions, secrets: ["API_
         tutor_response: tutorResponse,
         module_id: moduleId,
         step_index: stepIndex,
+        template_id: templateId,
+        step_title: stepTitle,
+        remote_type: remoteType,
+        aliases: aliases ?? [],
         vector,
         created_at: FieldValue.serverTimestamp(),
     });
+
+    // New logic for logging alias usage for analytics
+    if (aliases && aliases.length > 0) {
+        for (const detected of aliases) {
+            // Create a document ID from the module, formal name, and the alias phrase itself.
+            // Sanitize the alias to make it a safe document ID.
+            const sanitizedAlias = detected.alias.replace(/[^a-zA-Z0-9-]/g, "_");
+            const docId = `${moduleId}_${detected.formalName.replace(/\s/g, "")}_${sanitizedAlias}`;
+            const logRef = db.collection("alias_logs").doc(docId);
+
+            try {
+                await db.runTransaction(async (tx) => {
+                    const doc = await tx.get(logRef);
+                    if (doc.exists) {
+                        tx.update(logRef, { frequency: FieldValue.increment(1) });
+                    } else {
+                        tx.set(logRef, {
+                            phrase: detected.alias, // log the informal phrase
+                            mappedButton: detected.formalName,
+                            moduleId: moduleId,
+                            frequency: 1,
+                            createdAt: FieldValue.serverTimestamp(),
+                        });
+                    }
+                });
+            } catch (e) {
+                logger.error("Alias log transaction failed:", e);
+                // Non-fatal error for analytics logging
+            }
+        }
+    }
+
 
     await usageRef.set({ tutorInteractions: FieldValue.increment(1) }, { merge: true });
     return { status: "logged" };
@@ -300,7 +374,17 @@ export const findSimilarInteractions = onCall<{ question: string; moduleId: stri
     const { question, moduleId } = req.data;
     const queryVector = await generateEmbedding(question);
 
-    const snapshot = await db.collection("tutorLogs").where("module_id", "==", moduleId).get();
+    // Fetch the module to get the templateId if it exists
+    const moduleDoc = await db.collection("modules").doc(moduleId).get();
+    const templateId = moduleDoc.data()?.metadata?.templateId;
+
+    let query = db.collection("tutorLogs").where("module_id", "==", moduleId);
+    if (templateId) {
+        // If template exists, broaden search to all modules with the same template
+        query = db.collection("tutorLogs").where("template_id", "==", templateId);
+    }
+    const snapshot = await query.get();
+
 
     const results = snapshot.docs.map(doc => {
         const data = doc.data();
@@ -527,4 +611,62 @@ export const updateFeedbackWithFix = onCall<any>({ ...corsOptions, secrets: ["AP
     }
     await db.collection("feedbackLogs").doc(logId).update(updateData);
     return { success: true };
+});
+
+
+// --- Routines Service Functions ---
+
+export const saveRoutine = onCall<any>(corsOptions, async (req) => {
+    const uid = req.auth?.uid;
+    if (!uid) throw new HttpsError("unauthenticated", "Authentication required.");
+
+    const { routine } = req.data;
+    const { id, ...dataToSave } = routine;
+
+    dataToSave.userId = uid;
+    dataToSave.updatedAt = FieldValue.serverTimestamp();
+
+    if (id) {
+        const routineRef = db.collection("routines").doc(id);
+        await routineRef.update(dataToSave);
+        const doc = await routineRef.get();
+        return { id: doc.id, ...doc.data() };
+    } else {
+        dataToSave.createdAt = FieldValue.serverTimestamp();
+        const newRef = await db.collection("routines").add(dataToSave);
+        const doc = await newRef.get();
+        return { id: doc.id, ...doc.data() };
+    }
+});
+
+export const getRoutineForIntent = onCall<{ templateId: string; intent: string }>(corsOptions, async (req) => {
+    const { templateId, intent } = req.data;
+    const snap = await db.collection("routines")
+        .where("templateId", "==", templateId)
+        .where("intent", "==", intent)
+        .limit(1)
+        .get();
+
+    if (snap.empty) return null;
+
+    const doc = snap.docs[0];
+    return { id: doc.id, ...doc.data() };
+});
+
+export const getSignedRoutineVideoUploadUrl = onCall<any>(corsOptions, async (req) => {
+    const uid = req.auth?.uid;
+    if (!uid) throw new HttpsError("unauthenticated", "Authentication required.");
+
+    const { templateId, intent, contentType } = req.data;
+    const filePath = `routines_videos/${uid}/${templateId}_${intent}_${Date.now()}`;
+    const file = storage.bucket().file(filePath);
+
+    const [url] = await file.getSignedUrl({
+        version: "v4",
+        action: "write",
+        expires: Date.now() + 15 * 60 * 1000,
+        contentType,
+    });
+
+    return { uploadUrl: url, filePath };
 });

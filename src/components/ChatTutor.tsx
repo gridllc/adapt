@@ -1,17 +1,19 @@
 import React, { useState, useEffect, useRef, useCallback, useReducer } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { startChat, getFallbackResponse, generateImage, sendMessageWithRetry } from '@/services/geminiService';
+import { startChat, getFallbackResponse, generateImage, sendMessageWithRetry, detectIntent } from '@/services/geminiService';
+import { getRoutineForIntent } from '@/services/routineService';
 import * as ttsService from '@/services/ttsService';
 import { submitSuggestion } from '@/services/suggestionsService';
 import { getChatHistory, saveChatMessage, updateMessageFeedback } from '@/services/chatService';
 import { findSimilarInteractions, logTutorInteraction } from '@/services/tutorLogService';
 import { flagQuestion } from '@/services/flaggingService';
 import { chatReducer, initialChatState } from '@/reducers/chatReducer';
-import type { ChatMessage, ProcessStep, TutorLog } from '@/types';
+import type { ChatMessage, ProcessStep, TutorLog, Routine } from '@/types';
 import { SendIcon, BotIcon, UserIcon, LinkIcon, SpeakerOnIcon, SpeakerOffIcon, LightbulbIcon, DownloadIcon, MessageSquareIcon, XIcon, CheckCircleIcon, ImageIcon, SparklesIcon, ClockIcon, AlertTriangleIcon, DatabaseIcon, ThumbsUpIcon, ThumbsDownIcon } from './Icons';
 import { useToast } from '@/hooks/useToast';
 import { useAuth } from '@/hooks/useAuth';
 import type { Chat, Content, GroundingChunk } from '@google/genai';
+import { detectAliases } from '@/utils/aliasService';
 
 interface ChatTutorProps {
     moduleId: string;
@@ -24,6 +26,7 @@ interface ChatTutorProps {
     onClose: () => void;
     initialPrompt?: string;
     isDebug?: boolean;
+    templateContext?: any; // For template-aware AI
 }
 
 const RETRY_PHRASES = [
@@ -55,7 +58,7 @@ const parseTimestamp = (text: string): number | null => {
     return null;
 };
 
-export const ChatTutor: React.FC<ChatTutorProps> = ({ moduleId, sessionToken, stepsContext, fullTranscript, onTimestampClick, currentStepIndex, steps, onClose, initialPrompt, isDebug = false }) => {
+export const ChatTutor: React.FC<ChatTutorProps> = ({ moduleId, sessionToken, stepsContext, fullTranscript, onTimestampClick, currentStepIndex, steps, onClose, initialPrompt, isDebug = false, templateContext }) => {
     const queryClient = useQueryClient();
     const chatHistoryQueryKey = ['chatHistory', moduleId, sessionToken];
     const { addToast } = useToast();
@@ -144,13 +147,13 @@ export const ChatTutor: React.FC<ChatTutorProps> = ({ moduleId, sessionToken, st
         }));
 
         try {
-            chatRef.current = startChat(stepsContext, fullTranscript, geminiHistory);
+            chatRef.current = startChat(stepsContext, fullTranscript, geminiHistory, templateContext);
         } catch (err) {
             const errorMessage = err instanceof Error ? err.message : 'Could not start AI chat.';
             addToast('error', 'Initialization Failed', errorMessage);
         }
 
-    }, [stepsContext, fullTranscript, initialMessages, isLoadingHistory, addToast]);
+    }, [stepsContext, fullTranscript, initialMessages, isLoadingHistory, addToast, templateContext]);
 
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -172,47 +175,73 @@ export const ChatTutor: React.FC<ChatTutorProps> = ({ moduleId, sessionToken, st
 
         ttsService.cancel();
 
+        const userMessage: ChatMessage = { id: Date.now().toString(), role: 'user', text: trimmedInput };
+        dispatch({ type: 'ADD_MESSAGES', payload: [userMessage] });
+        persistMessage(userMessage);
+
+        dispatch({ type: 'START_MESSAGE' });
+
+        // --- Routine-First Logic ---
+        const templateId = templateContext?.templateId || moduleId;
+        const intent = await detectIntent(trimmedInput);
+        let routine: Routine | null = null;
+        if (intent !== 'unclear') {
+            routine = await getRoutineForIntent(templateId, intent);
+        }
+
+        if (routine) {
+            const routineText = `Here's the routine for "${routine.intent}":\n\n${routine.steps.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
+            const routineMessage: ChatMessage = {
+                id: (Date.now() + 1).toString(),
+                role: 'model',
+                text: routineText,
+                isLoading: false,
+                isRoutine: true,
+            };
+            dispatch({ type: 'MESSAGE_COMPLETE', payload: { messageId: '', finalMessage: routineMessage } }); // Using '' as we add it directly
+            dispatch({ type: 'ADD_MESSAGES', payload: [routineMessage] }); // Manually add after START_MESSAGE
+            persistMessage(routineMessage);
+            logTutorInteraction({
+                moduleId: moduleId,
+                stepIndex: currentStepIndex,
+                userQuestion: trimmedInput,
+                tutorResponse: `Routine for ${intent}`,
+                templateId: templateContext?.templateId,
+                stepTitle: intent, // Log the intent as the step title for analytics
+                remoteType: "ai-routine", // Special type for analytics
+                aliases: [],
+            });
+            if (isAutoSpeakEnabled) {
+                try { await ttsService.speak(routineText); } catch (e) { console.warn("TTS failed for routine", e); }
+            }
+            return;
+        }
+        // --- End Routine Logic ---
+
+
         if (isRetryMessage(trimmedInput)) {
-            const userMessage: ChatMessage = { id: Date.now().toString(), role: 'user', text: trimmedInput };
-            dispatch({ type: 'ADD_MESSAGES', payload: [userMessage] });
-            persistMessage(userMessage);
-
             const lastModelMessage = messages.slice().reverse().find((m: ChatMessage) => m.role === 'model' && !m.isError && m.text.trim());
-
             let retryText: string;
             if (lastModelMessage?.text) {
-                // Enhanced retry response as per user request
                 retryText = `[SUGGESTION]Let me try to explain that a different way:[/SUGGESTION]\n\n${lastModelMessage.text.replace(/\[SUGGESTION\]([\s\S]*?)\[\/SUGGESTION\]/g, '$1')}`;
             } else {
                 retryText = "I'm sorry, I don't have a previous response to repeat. Could you please ask your original question again?";
             }
-
-            const modelRetryMessage: ChatMessage = {
-                id: (Date.now() + 1).toString(),
-                role: 'model',
-                text: retryText,
-                isLoading: false,
-            };
-
+            const modelRetryMessage: ChatMessage = { id: (Date.now() + 1).toString(), role: 'model', text: retryText, isLoading: false };
             dispatch({ type: 'ADD_MESSAGES', payload: [modelRetryMessage] });
             persistMessage(modelRetryMessage);
-
             if (isAutoSpeakEnabled) {
                 try { await ttsService.speak(retryText); }
                 catch (ttsErr) { console.warn("TTS failed for retry response:", ttsErr); }
             }
-            return; // Exit early to avoid new Gemini call
+            return;
         }
 
         if (trimmedInput.toLowerCase().startsWith('/draw ')) {
             const imagePrompt = trimmedInput.substring(6);
-            const userMessage: ChatMessage = { id: Date.now().toString(), role: 'user', text: trimmedInput };
             const modelPlaceholderId = (Date.now() + 1).toString();
             const modelPlaceholder: ChatMessage = { id: modelPlaceholderId, role: 'model', text: 'Generating image...', isLoading: true, imageUrl: '' };
-
-            dispatch({ type: 'ADD_MESSAGES', payload: [userMessage, modelPlaceholder] });
-            persistMessage(userMessage);
-
+            dispatch({ type: 'ADD_MESSAGES', payload: [modelPlaceholder] });
             try {
                 const imageUrl = await generateImage(imagePrompt);
                 const finalModelMessage: ChatMessage = { ...modelPlaceholder, text: '', isLoading: false, imageUrl };
@@ -241,16 +270,12 @@ export const ChatTutor: React.FC<ChatTutorProps> = ({ moduleId, sessionToken, st
             } catch (e) { console.warn("Could not retrieve collective memory:", e); }
         }
 
-        const userMessage: ChatMessage = { id: Date.now().toString(), role: 'user', text: trimmedInput };
         const modelMessageId = (Date.now() + 1).toString();
         const modelPlaceholder: ChatMessage = { id: modelMessageId, role: 'model', text: '', isLoading: true };
-
-        dispatch({ type: 'ADD_MESSAGES', payload: [userMessage, modelPlaceholder] });
-        persistMessage(userMessage);
+        dispatch({ type: 'ADD_MESSAGES', payload: [modelPlaceholder] });
 
         const enrichedInput = enrichPromptIfNeeded(trimmedInput);
         const finalPrompt = memoryContext + enrichedInput;
-        dispatch({ type: 'START_MESSAGE' });
 
         let finalModelText = '';
         const finalCitations: ChatMessage['citations'] = [];
@@ -307,10 +332,19 @@ export const ChatTutor: React.FC<ChatTutorProps> = ({ moduleId, sessionToken, st
                 };
                 dispatch({ type: 'MESSAGE_COMPLETE', payload: { messageId: modelMessageId, finalMessage: finalModelMessage } });
                 persistMessage(finalModelMessage);
-                logTutorInteraction(moduleId, currentStepIndex, trimmedInput, finalModelText)
-                    .catch(err => console.warn("Failed to log interaction to collective memory:", err));
 
-                // Auto-flagging for unhelpful responses
+                const detectedUserAliases = detectAliases(trimmedInput);
+                logTutorInteraction({
+                    moduleId: moduleId,
+                    stepIndex: currentStepIndex,
+                    userQuestion: trimmedInput,
+                    tutorResponse: finalModelText,
+                    templateId: templateContext?.templateId,
+                    stepTitle: intent, // Log the detected intent
+                    remoteType: steps[currentStepIndex]?.remoteType,
+                    aliases: detectedUserAliases,
+                }).catch(err => console.warn("Failed to log interaction to collective memory:", err));
+
                 const vagueResponseRegex = /\b(i (don’t|do not) (know|have enough|have that info)|i'm sorry|i am sorry|i cannot answer|i can't answer|i am unable to|that information isn't in this specific training)\b/i;
 
                 if (vagueResponseRegex.test(finalModelText)) {
@@ -328,7 +362,7 @@ export const ChatTutor: React.FC<ChatTutorProps> = ({ moduleId, sessionToken, st
                 dispatch({ type: 'REMOVE_MESSAGE', payload: { messageId: modelMessageId } });
             }
         }
-    }, [isLoading, isAutoSpeakEnabled, enrichPromptIfNeeded, stepsContext, fullTranscript, messages, persistMessage, addToast, moduleId, sessionToken, currentStepIndex, isMemoryEnabled, user]);
+    }, [isLoading, isAutoSpeakEnabled, enrichPromptIfNeeded, stepsContext, fullTranscript, messages, persistMessage, addToast, moduleId, sessionToken, currentStepIndex, isMemoryEnabled, user, templateContext, steps]);
 
     const handleFormSubmit = useCallback(async (e: React.FormEvent) => {
         e.preventDefault();
@@ -502,7 +536,9 @@ export const ChatTutor: React.FC<ChatTutorProps> = ({ moduleId, sessionToken, st
                             ? 'bg-indigo-500 text-white rounded-br-sm'
                             : msg.isError
                                 ? 'bg-red-100 dark:bg-red-900/50 rounded-bl-sm'
-                                : 'bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-bl-sm'
+                                : msg.isRoutine
+                                    ? 'bg-cyan-100 dark:bg-cyan-900/50 rounded-bl-sm border border-cyan-300 dark:border-cyan-700'
+                                    : 'bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-bl-sm'
                             }`}>
                             {msg.isLoading ? (
                                 msg.text ? (

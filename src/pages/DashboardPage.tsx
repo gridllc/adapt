@@ -1,16 +1,17 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { getAvailableModules, saveModule } from '@/services/moduleService';
+import { getAvailableModules, saveModule, deleteModule } from '@/services/moduleService';
 import { getQuestionFrequency, findHotspots, getAllTutorLogs, findPlatformHotspot } from '@/services/analyticsService';
 import { getCompletedSessionCount, getTotalSessionCount } from '@/services/sessionService';
 import { getAllPendingSuggestions, getLatestAiSuggestionForStep, refineStep } from '@/services/suggestionsService';
 import { generateBranchModule } from '@/services/geminiService';
-import { BarChartIcon, LightbulbIcon, SparklesIcon, GitBranchIcon, BookOpenIcon, ClockIcon, HelpCircleIcon } from '@/components/Icons';
+import { BarChartIcon, LightbulbIcon, SparklesIcon, GitBranchIcon, BookOpenIcon, ClockIcon, HelpCircleIcon, VideoIcon, DownloadIcon, TrashIcon } from '@/components/Icons';
 import { RefinementModal } from '@/components/RefinementModal';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/useToast';
 import type { AnalysisHotspot, RefinementSuggestion, ProcessStep, QuestionStats, AiSuggestion, TraineeSuggestion, TutorLogRow, AppModuleWithStats, AppModule, ModuleForInsert, Json } from '@/types';
+import { ModuleCardSkeleton } from '@/components/ModuleCardSkeleton';
 
 
 const StatCard: React.FC<{ title: string; value: number | string; icon: React.ElementType; isLoading: boolean }> = ({ title, value, icon: Icon, isLoading }) => (
@@ -32,16 +33,16 @@ const StatCard: React.FC<{ title: string; value: number | string; icon: React.El
 
 const DashboardPage: React.FC = () => {
     const queryClient = useQueryClient();
-    const { user } = useAuth();
+    const { user, isAuthenticated } = useAuth();
     const { addToast } = useToast();
     const navigate = useNavigate();
-    
+
     const [selectedModule, setSelectedModule] = useState<AppModuleWithStats | null>(null);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [activeSuggestion, setActiveSuggestion] = useState<RefinementSuggestion | null>(null);
 
     // --- Platform-Wide Data Fetching ---
-    const { data: availableModules = [], isLoading: isLoadingModules } = useQuery<AppModuleWithStats[], Error>({ queryKey: ['modules'], queryFn: getAvailableModules });
+    const { data: availableModules = [], isLoading: isLoadingModules, error: modulesError } = useQuery<AppModuleWithStats[], Error>({ queryKey: ['modules'], queryFn: getAvailableModules });
     const { data: totalSessions, isLoading: isLoadingTotalSessions } = useQuery<number>({ queryKey: ['totalSessions'], queryFn: getTotalSessionCount });
     const { data: completedSessions, isLoading: isLoadingCompletedSessions } = useQuery<number>({ queryKey: ['completedSessions'], queryFn: getCompletedSessionCount });
     const { data: pendingSuggestions = [], isLoading: isLoadingSuggestions } = useQuery<(TraineeSuggestion & { module_title?: string })[]>({ queryKey: ['pendingSuggestions'], queryFn: getAllPendingSuggestions });
@@ -58,7 +59,7 @@ const DashboardPage: React.FC = () => {
         },
         enabled: !!selectedModule?.slug,
     });
-    
+
     const moduleHotspot: AnalysisHotspot | null = analysisData?.hotspot ?? null;
 
     const { data: existingAiSuggestion, isLoading: isLoadingExistingSuggestion } = useQuery<AiSuggestion | null, Error>({
@@ -109,13 +110,35 @@ const DashboardPage: React.FC = () => {
         onError: (error) => addToast('error', 'Module Drafting Failed', error.message)
     });
 
+    const handleDeleteModule = useCallback(async (e: React.MouseEvent, slug: string | null) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (!slug) return;
+
+        const confirmation = window.confirm(
+            'Are you sure you want to delete this module? This will also remove ALL associated training progress and chat histories from the database. This action cannot be undone.'
+        );
+
+        if (confirmation) {
+            try {
+                await deleteModule(slug);
+                await queryClient.invalidateQueries({ queryKey: ['modules'] });
+                addToast('success', 'Module Deleted', `The module was successfully removed.`);
+            } catch (err) {
+                console.error("Failed to delete module:", err);
+                const errorMessage = err instanceof Error ? err.message : 'An error occurred during deletion.';
+                addToast('error', 'Deletion Failed', errorMessage);
+            }
+        }
+    }, [queryClient, addToast]);
+
     // --- Derived Data & Callbacks ---
     useEffect(() => {
         if (availableModules.length > 0 && !selectedModule) {
             setSelectedModule(availableModules[0]);
         }
     }, [availableModules, selectedModule]);
-    
+
     const platformHotspot: (AnalysisHotspot & { moduleId: string }) | null = useMemo(() => findPlatformHotspot(allLogs, availableModules), [allLogs, availableModules]);
 
     const handleGenerateSuggestion = () => {
@@ -143,11 +166,11 @@ const DashboardPage: React.FC = () => {
         const module = availableModules.find(m => m.slug === event.target.value);
         setSelectedModule(module || null);
     };
-    
+
     const newAiSuggestion = refinementMutation.data;
 
     return (
-        <div className="w-full max-w-screen-md mx-auto px-4 py-8">
+        <div className="w-full max-w-screen-lg mx-auto px-4 py-8">
             <h1 className="text-3xl font-bold text-slate-900 dark:text-white mb-8 text-center flex items-center gap-3 justify-center">
                 <BarChartIcon className="h-8 w-8" />
                 Platform Overview
@@ -191,30 +214,19 @@ const DashboardPage: React.FC = () => {
                             </div>
                             <div className="flex flex-wrap justify-center items-center gap-4 mt-4">
                                 {isLoadingExistingSuggestion ? <p className="text-sm text-slate-600 dark:text-slate-300">Checking for suggestions...</p>
-                                : existingAiSuggestion ? <button onClick={() => openSuggestionModal({ newDescription: existingAiSuggestion.suggestion, newAlternativeMethod: null })} className="bg-green-600 text-white font-bold py-2 px-6 rounded-lg hover:bg-green-700 transition-colors transform hover:scale-105">Preview & Apply Fix</button>
-                                : newAiSuggestion ? <button onClick={() => openSuggestionModal(newAiSuggestion)} className="bg-green-600 text-white font-bold py-2 px-6 rounded-lg hover:bg-green-700 transition-colors transform hover:scale-105">Preview & Apply Fix</button>
-                                : <button onClick={handleGenerateSuggestion} disabled={refinementMutation.isPending} className="bg-indigo-600 text-white font-bold py-2 px-6 rounded-lg hover:bg-indigo-700 transition-colors transform hover:scale-105 disabled:opacity-50 flex items-center gap-2"><SparklesIcon className="h-5 w-5" />{refinementMutation.isPending ? 'Generating...' : 'Refine This Step'}</button>
+                                    : existingAiSuggestion ? <button onClick={() => openSuggestionModal({ newDescription: existingAiSuggestion.suggestion, newAlternativeMethod: null })} className="bg-green-600 text-white font-bold py-2 px-6 rounded-lg hover:bg-green-700 transition-colors transform hover:scale-105">Preview & Apply Fix</button>
+                                        : newAiSuggestion ? <button onClick={() => openSuggestionModal(newAiSuggestion)} className="bg-green-600 text-white font-bold py-2 px-6 rounded-lg hover:bg-green-700 transition-colors transform hover:scale-105">Preview & Apply Fix</button>
+                                            : <button onClick={handleGenerateSuggestion} disabled={refinementMutation.isPending} className="bg-indigo-600 text-white font-bold py-2 px-6 rounded-lg hover:bg-indigo-700 transition-colors transform hover:scale-105 disabled:opacity-50 flex items-center gap-2"><SparklesIcon className="h-5 w-5" />{refinementMutation.isPending ? 'Generating...' : 'Refine This Step'}</button>
                                 }
                                 <button onClick={handleGenerateBranchModule} disabled={branchModuleMutation.isPending} className="bg-cyan-600 text-white font-bold py-2 px-6 rounded-lg hover:bg-cyan-700 transition-colors transform hover:scale-105 disabled:opacity-50 flex items-center gap-2"><GitBranchIcon className="h-5 w-5" />{branchModuleMutation.isPending ? 'Drafting...' : 'Draft Remedial Module'}</button>
                             </div>
                         </div>
                     ) : <p className="text-center p-4">No significant confusion hotspots found for this module.</p>}
 
-                    <div className="bg-white dark:bg-slate-800/50 p-6 rounded-xl border border-slate-200 dark:border-slate-700">
-                        <div className="flex justify-between items-center mb-4">
-                             <h3 className="text-lg font-bold text-indigo-500 dark:text-indigo-400">Common Questions for {selectedModule?.title || 'Module'}</h3>
-                            <Link to="/dashboard/questions" className="text-sm text-indigo-600 dark:text-indigo-400 hover:underline font-semibold">View Full Log &rarr;</Link>
-                        </div>
-                        {analysisData?.stats && analysisData.stats.length > 0 && selectedModule?.slug ? (
-                            <div className="space-y-3 max-h-96 overflow-y-auto pr-2">{analysisData.stats.map((stat, index) => (
-                                <Link key={index} to={`/dashboard/questions/${selectedModule.slug}/${stat.stepIndex}/${encodeURIComponent(stat.question)}`} className="block bg-slate-200 dark:bg-slate-900/50 p-4 rounded-lg flex items-center justify-between hover:ring-2 hover:ring-indigo-500 transition-all"><p className="text-slate-800 dark:text-slate-200 italic">&quot;{stat.question}&quot;</p><span className="bg-indigo-600 text-white text-xs font-bold rounded-full px-3 py-1 flex-shrink-0 ml-4">{stat.count} {stat.count > 1 ? 'times' : 'time'}</span></Link>
-                            ))}</div>
-                        ) : <div className="text-center text-slate-500 bg-slate-200 dark:bg-slate-900/50 p-6 rounded-lg">{!isAnalyzing && "No question data found for this module."}</div>}
-                    </div>
                 </div>
 
                 <div className="lg:col-span-1 space-y-8">
-                     {isLoadingLogs ? <div className="h-48 bg-slate-200 dark:bg-slate-800 rounded-xl animate-pulse" /> : platformHotspot && (
+                    {isLoadingLogs ? <div className="h-48 bg-slate-200 dark:bg-slate-800 rounded-xl animate-pulse" /> : platformHotspot && (
                         <div className="bg-gradient-to-br from-yellow-100 dark:from-yellow-900/70 to-slate-100/50 dark:to-slate-900/50 p-6 rounded-xl border border-yellow-300 dark:border-yellow-700 animate-fade-in-up">
                             <div className="flex items-center gap-3 mb-4"><LightbulbIcon className="h-8 w-8 text-yellow-500 dark:text-yellow-400 flex-shrink-0" /><div><h3 className="text-lg font-bold text-yellow-700 dark:text-yellow-300">Top Platform Hotspot</h3><p className="text-sm text-slate-800 dark:text-slate-200">This step causes the most confusion across ALL modules.</p></div></div>
                             <div className="bg-white/60 dark:bg-slate-900/60 p-4 rounded-lg"><p className="text-xs text-slate-500 dark:text-slate-400 font-semibold uppercase">Confusing Step</p><p className="text-md font-bold text-slate-800 dark:text-slate-200">{platformHotspot.stepTitle}</p><p className="text-xs text-slate-500 dark:text-slate-400 font-semibold uppercase mt-2">In Module</p><p className="text-md text-slate-800 dark:text-slate-200">{(availableModules.find(m => m.slug === platformHotspot.moduleId))?.title}</p></div>
@@ -224,13 +236,76 @@ const DashboardPage: React.FC = () => {
                     <div className="bg-white dark:bg-slate-800/50 p-6 rounded-xl border border-slate-200 dark:border-slate-700">
                         <h2 className="text-xl font-bold text-indigo-500 dark:text-indigo-400 mb-4">Pending Suggestions</h2>
                         {isLoadingSuggestions ? <p className="text-slate-500">Loading suggestions...</p>
-                        : pendingSuggestions.length > 0 ? (
-                            <div className="space-y-3 max-h-96 overflow-y-auto pr-2">{pendingSuggestions.map(sug => (
-                                <div key={sug.id} className="p-3 bg-slate-100 dark:bg-slate-900/50 rounded-lg"><p className="text-sm italic text-slate-800 dark:text-slate-200">&quot;{sug.text}&quot;</p><button onClick={() => navigate(`/modules/${sug.moduleId}/edit`)} className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline mt-1">Review in {sug.module_title || 'module'} &rarr;</button></div>
-                            ))}</div>
-                        ) : <p className="text-slate-500 text-center py-4">No pending suggestions from trainees.</p>}
+                            : pendingSuggestions.length > 0 ? (
+                                <div className="space-y-3 max-h-96 overflow-y-auto pr-2">{pendingSuggestions.map(sug => (
+                                    <div key={sug.id} className="p-3 bg-slate-100 dark:bg-slate-900/50 rounded-lg"><p className="text-sm italic text-slate-800 dark:text-slate-200">&quot;{sug.text}&quot;</p><button onClick={() => navigate(`/modules/${sug.moduleId}/edit`)} className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline mt-1">Review in {sug.module_title || 'module'} &rarr;</button></div>
+                                ))}</div>
+                            ) : <p className="text-slate-500 text-center py-4">No pending suggestions from trainees.</p>}
                     </div>
                 </div>
+            </div>
+
+            {/* Existing Modules List */}
+            <div className="mt-12 bg-white dark:bg-slate-800/50 p-6 rounded-xl border border-slate-200 dark:border-slate-700">
+                <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-6">Your Training Modules</h2>
+                {isLoadingModules ? (
+                    <div className="space-y-4">
+                        <ModuleCardSkeleton />
+                        <ModuleCardSkeleton />
+                    </div>
+                ) : modulesError ? (
+                    <div className="text-center text-red-500 dark:text-red-400 bg-red-100 dark:bg-red-900/50 p-4 rounded-lg">
+                        Error fetching modules: {modulesError.message}
+                    </div>
+                ) : availableModules.length > 0 ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        {availableModules.map(module => {
+                            if (!module.slug) return null;
+
+                            return (
+                                <div key={module.slug} className="w-full text-left p-6 bg-white dark:bg-slate-800 rounded-xl hover:ring-2 hover:ring-indigo-500 transition-all duration-300 shadow-md dark:shadow-lg relative group">
+                                    <div className="flex justify-between items-start mb-4">
+                                        <div className="flex items-center gap-4">
+                                            <div className="bg-indigo-100 dark:bg-indigo-600/30 p-3 rounded-lg">
+                                                <BookOpenIcon className="h-6 w-6 text-indigo-600 dark:text-indigo-300" />
+                                            </div>
+                                            <div>
+                                                <h3 className="text-xl font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
+                                                    {module.title}
+                                                    {module.is_ai_generated && <span title="AI Generated"><SparklesIcon className="h-5 w-5 text-yellow-500" /></span>}
+                                                </h3>
+                                                <p className="text-slate-500 dark:text-slate-400">{module.steps.length} steps</p>
+                                            </div>
+                                        </div>
+                                        <div className="absolute top-4 right-4 flex gap-2 items-end opacity-0 group-hover:opacity-100 transition-opacity">
+                                            <button
+                                                onClick={(e) => handleDeleteModule(e, module.slug)}
+                                                className="p-2 bg-slate-200/50 dark:bg-slate-700/50 rounded-full text-slate-500 dark:text-slate-400 hover:bg-red-500/80 hover:text-white transition-all"
+                                                aria-label="Delete module"
+                                                title="Delete module"
+                                            >
+                                                <TrashIcon className="h-5 w-5" />
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div className="flex gap-2">
+                                        <Link to={`/modules/${module.slug}`} className="flex-1 text-center bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-800 dark:text-white font-semibold py-2 px-4 rounded-lg transition-colors">
+                                            Start Training
+                                        </Link>
+                                        <Link to={`/modules/${module.slug}/edit`} className="flex-1 text-center bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 px-4 rounded-lg transition-colors flex items-center justify-center gap-2">
+                                            <LightbulbIcon className="h-5 w-5" />
+                                            Edit Module
+                                        </Link>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                ) : (
+                    <div className="text-center bg-slate-100 dark:bg-slate-800 p-8 rounded-lg">
+                        <p className="text-slate-500 dark:text-slate-400">No training modules found in the database.</p>
+                    </div>
+                )}
             </div>
 
             {isModalOpen && moduleHotspot && activeSuggestion && selectedModule && (

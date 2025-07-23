@@ -1,9 +1,9 @@
-
 // src/firebase.ts
-import { initializeApp, getApp, getApps } from 'firebase/app';
+import * as firebaseApp from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { getStorage } from 'firebase/storage';
 import { getFunctions } from 'firebase/functions';
+import { getFirestore } from 'firebase/firestore';
 
 // Securely load Firebase config from environment variables
 const firebaseConfig = {
@@ -18,10 +18,11 @@ const firebaseConfig = {
 
 
 // Check if Firebase is already initialized to avoid errors during hot-reloading.
-const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
+const app = !firebaseApp.getApps().length ? firebaseApp.initializeApp(firebaseConfig) : firebaseApp.getApp();
 
 export const auth = getAuth(app);
 export const storage = getStorage(app);
 export const functions = getFunctions(app);
+export const db = getFirestore(app);
 
 export default app;

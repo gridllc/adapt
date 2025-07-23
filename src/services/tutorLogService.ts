@@ -5,6 +5,7 @@
 import { functions } from '@/firebase';
 import { httpsCallable } from 'firebase/functions';
 import type { TutorLog } from '@/types';
+import type { DetectedAlias } from '@/utils/aliasService';
 
 // --- Callable Firebase Functions ---
 // These functions are assumed to be deployed on the backend.
@@ -12,19 +13,25 @@ import type { TutorLog } from '@/types';
 const logTutorInteractionFn = httpsCallable(functions, 'logTutorInteraction');
 const findSimilarInteractionsFn = httpsCallable(functions, 'findSimilarInteractions');
 
+interface TutorLogPayload {
+    moduleId: string;
+    stepIndex: number;
+    userQuestion: string;
+    tutorResponse: string;
+    templateId?: string | null;
+    stepTitle?: string | null;
+    remoteType?: 'A' | 'B' | null;
+    aliases?: DetectedAlias[];
+}
+
 /**
  * Logs a user's question and the AI's response to Firestore via a Firebase Function.
  * The backend function is responsible for generating an embedding for the question.
  * This is a "fire-and-forget" call from the client's perspective.
  */
-export const logTutorInteraction = async (
-    moduleId: string,
-    stepIndex: number,
-    userQuestion: string,
-    tutorResponse: string
-): Promise<void> => {
+export const logTutorInteraction = async (payload: TutorLogPayload): Promise<void> => {
     try {
-        await logTutorInteractionFn({ moduleId, stepIndex, userQuestion, tutorResponse });
+        await logTutorInteractionFn(payload);
     } catch (error) {
         // We don't want to block the user's experience if logging fails,
         // but we should report the error.

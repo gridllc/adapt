@@ -1,5 +1,6 @@
 import { GoogleGenAI, Chat, Content, Type, GenerateContentResponse, Part, EmbedContentResponse } from "@google/genai";
 import type { ProcessStep, ChatMessage, CheckpointEvaluation, TranscriptLine, GeneratedBranchModule } from "@/types";
+import { getAliasPromptInjection } from "@/utils/aliasService";
 
 // --- Custom Return Types for Decoupling ---
 
@@ -94,6 +95,19 @@ const moduleFromTextSchema = {
     },
     required: ["slug", "title", "steps"]
 };
+
+const intentDetectionSchema = {
+    type: Type.OBJECT,
+    properties: {
+        intent: {
+            type: Type.STRING,
+            description: "The user's primary goal, classified into one of the available categories.",
+            enum: ["power-on", "open-app", "watch-channel", "change-input", "adjust-volume", "troubleshoot", "navigate-menu", "unclear"]
+        },
+    },
+    required: ["intent"],
+};
+
 
 // --- Internal File Handling Helper ---
 async function fileToGenerativePart(file: File): Promise<Part> {
@@ -216,25 +230,118 @@ export const generateModuleFromContext = async (context: {
     }
 };
 
+export const generateModuleFromModelNumber = async (brand: string, model: string): Promise<GeneratedModuleData> => {
+    if (import.meta.env.DEV) console.time('[AI Perf] generateModuleFromModelNumber');
+    const ai = getAiClient();
+    console.log("[AI Service] Generating module from model number...");
+
+    const prompt = `You are an expert technical writer. Create a simple, step-by-step training guide for a device.
+    
+    **Device Brand:** ${brand}
+    **Device Model:** ${model}
+    
+    Search the web for information about this device if you don't know it. Create a JSON object for a training module with:
+    - A URL-friendly 'slug'.
+    - A concise 'title' (e.g., "How to Use the ${brand} ${model}").
+    - An array of 'steps', where each step has a 'title' and a detailed 'description'.
+    - Infer 'checkpoint' questions and 'alternativeMethods' where appropriate, but they can be null or empty arrays.
+    - Set 'start' and 'end' times for all steps to 0 as placeholders.
+    If you cannot find any information on this model, your response must be an empty JSON object {}.`;
+
+    try {
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: prompt,
+            config: {
+                responseMimeType: "application/json",
+                responseSchema: moduleFromTextSchema,
+                tools: [{ googleSearch: {} }],
+            },
+        });
+
+        const text = response.text;
+        if (!text || text.trim() === '{}') {
+            throw new Error(`AI could not find information for model: ${brand} ${model}. Please try uploading a manual.`);
+        }
+        return parseJson<GeneratedModuleData>(text);
+
+    } catch (error) {
+        console.error("[AI Service] Error generating module from model number:", error);
+        throw error;
+    } finally {
+        if (import.meta.env.DEV) console.timeEnd('[AI Perf] generateModuleFromModelNumber');
+    }
+};
+
+
 // --- Chat & Tutoring Services ---
 
-function getChatTutorSystemInstruction(stepsContext: string, fullTranscript?: string): string {
+export const detectIntent = async (userQuestion: string): Promise<string> => {
+    if (import.meta.env.DEV) console.time('[AI Perf] detectIntent');
+    const ai = getAiClient();
+    const prompt = `Classify the user's intent based on their question about using a device like a TV remote. The available intents are: "power-on", "open-app", "watch-channel", "change-input", "adjust-volume", "troubleshoot", "navigate-menu", "unclear".
+    
+    User Question: "${userQuestion}"
+    
+    Return a single JSON object with the key "intent" and one of the enum values.`;
+
+    try {
+        const response = await ai.models.generateContent({
+            model: "gemini-2.5-flash",
+            contents: prompt,
+            config: {
+                responseMimeType: "application/json",
+                responseSchema: intentDetectionSchema,
+            },
+        });
+        const text = response.text;
+        if (!text) return "unclear";
+        const result = parseJson<{ intent: string }>(text);
+        return result.intent || "unclear";
+    } catch (error) {
+        console.warn("[AI Service] Intent detection failed:", error);
+        return "unclear";
+    } finally {
+        if (import.meta.env.DEV) console.timeEnd('[AI Perf] detectIntent');
+    }
+};
+
+
+function getChatTutorSystemInstruction(stepsContext: string, fullTranscript?: string, templateContext?: any): string {
+    let baseInstruction = `You are the Adapt AI Tutor, an expert teaching assistant. Your single most important goal is to teach a trainee the specific process designed by their company's owner.\n\n`;
+
+    // Add alias context to help the AI understand informal language.
+    baseInstruction += `${getAliasPromptInjection()}\n\n`;
+
+    if (templateContext) {
+        baseInstruction += "--- IMPORTANT TEMPLATE CONTEXT ---\n";
+        if (templateContext.ai_context_notes) {
+            baseInstruction += `${templateContext.ai_context_notes}\n`;
+        }
+        if (templateContext.buttons?.length > 0) {
+            baseInstruction += "Use this button glossary when referring to controls:\n";
+            templateContext.buttons.forEach((btn: { name: string, symbol: string, function: string }) => {
+                baseInstruction += `- ${btn.name} (${btn.symbol || 'text label'}): ${btn.function}\n`;
+            });
+        }
+        baseInstruction += "--- END TEMPLATE CONTEXT ---\n\n";
+    }
+
     const transcriptSection = fullTranscript?.trim()
         ? `--- FULL VIDEO TRANSCRIPT (For additional context) ---\n${fullTranscript}\n--- END FULL VIDEO TRANSCRIPT ---`
         : "A video transcript was not available for this module.";
 
-    return `You are the Adapt AI Tutor, an expert teaching assistant. Your single most important goal is to teach a trainee the specific process designed by their company's owner.
-
-Your instructions are provided in the 'PROCESS STEPS' document below. This is your primary source of truth.
+    return `${baseInstruction}Your instructions are provided in the 'PROCESS STEPS' document below. This is your primary source of truth.
 
 A 'FULL VIDEO TRANSCRIPT' may also be provided for additional context.
 
 **Your Core Directives:**
 1.  **Prioritize Process Steps:** Always base your answers on the 'PROCESS STEPS'. When asked a question (e.g., "what's next?"), find the relevant step and explain it using only the owner's instructions from that document.
-2.  **Use Transcript for Context:** Use the 'FULL VIDEO TRANSCRIPT' only to answer questions about something the speaker said that isn't in the step descriptions.
-3.  **Handle Out-of-Scope Questions:** If a question cannot be answered from the provided materials, you may use Google Search. You MUST first state: "That information isn't in this specific training, but here is what I found online:" before providing the answer.
-4.  **Use Timestamps:** When referencing the transcript, include the relevant timestamp in your answer in the format [HH:MM:SS] or [MM:SS].
-5.  **Suggest Improvements Correctly:** If a trainee's question implies they are looking for a better or faster way to do something, you may suggest a new method. You MUST format this suggestion clearly by wrapping it in special tags: [SUGGESTION]Your suggestion here.[/SUGGESTION]. Do not present suggestions as official process.
+2.  **Use Template Context:** If template context (like a button glossary) is provided, you MUST use it to be precise in your answers.
+3.  **Use Transcript for Context:** Use the 'FULL VIDEO TRANSCRIPT' only to answer questions about something the speaker said that isn't in the step descriptions.
+4.  **Handle Out-of-Scope Questions:** If a question cannot be answered from the provided materials, you may use Google Search. You MUST first state: "That information isn't in this specific training, but here is what I found online:" before providing the answer.
+5.  **Use Timestamps:** When referencing the transcript, include the relevant timestamp in your answer in the format [HH:MM:SS] or [MM:SS].
+6.  **Suggest Improvements Correctly:** If a trainee's question implies they are looking for a better or faster way to do something, you may suggest a new method. You MUST format this suggestion clearly by wrapping it in special tags: [SUGGESTION]Your suggestion here.[/SUGGESTION]. Do not present suggestions as official process.
 
 --- PROCESS STEPS (Source of Truth) ---
 ${stepsContext}
@@ -244,9 +351,9 @@ ${transcriptSection}
 `;
 }
 
-export const startChat = (stepsContext: string, fullTranscript?: string, history: Content[] = []): Chat => {
+export const startChat = (stepsContext: string, fullTranscript?: string, history: Content[] = [], templateContext?: any): Chat => {
     const ai = getAiClient();
-    const systemInstruction = getChatTutorSystemInstruction(stepsContext, fullTranscript);
+    const systemInstruction = getChatTutorSystemInstruction(stepsContext, fullTranscript, templateContext);
     return ai.chats.create({
         model: 'gemini-2.5-flash',
         config: { systemInstruction, tools: [{ googleSearch: {} }] },
