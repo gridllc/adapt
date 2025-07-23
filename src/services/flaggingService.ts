@@ -1,5 +1,4 @@
 import { functions } from '@/firebase';
-import { httpsCallable } from '@firebase/functions';
 import type { FlaggedQuestion } from '@/types';
 
 // This type mirrors the expected input for the 'flagQuestion' cloud function.
@@ -14,8 +13,8 @@ interface FlaggedQuestionForInsert {
 }
 
 // --- Callable Firebase Functions ---
-const flagQuestionFn = httpsCallable(functions, 'flagQuestion');
-const getFlaggedQuestionsFn = httpsCallable(functions, 'getFlaggedQuestions');
+const flagQuestionFn = functions.httpsCallable('flagQuestion');
+const getFlaggedQuestionsFn = functions.httpsCallable('getFlaggedQuestions');
 
 export async function flagQuestion(flagData: FlaggedQuestionForInsert): Promise<void> {
     try {

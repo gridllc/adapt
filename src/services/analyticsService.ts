@@ -1,13 +1,10 @@
-
-
 import type { AnalysisHotspot, QuestionStats, TutorLogRow, AppModuleWithStats } from '@/types';
 import { functions } from '@/firebase';
-import { httpsCallable } from 'firebase/functions';
 
-const getQuestionFrequencyFn = httpsCallable(functions, 'getQuestionFrequency');
-const getTutorLogsFn = httpsCallable(functions, 'getTutorLogs');
-const getAllTutorLogsFn = httpsCallable(functions, 'getAllTutorLogs');
-const getQuestionLogsByQuestionFn = httpsCallable(functions, 'getQuestionLogsByQuestion');
+const getQuestionFrequencyFn = functions.httpsCallable('getQuestionFrequency');
+const getTutorLogsFn = functions.httpsCallable('getTutorLogs');
+const getAllTutorLogsFn = functions.httpsCallable('getAllTutorLogs');
+const getQuestionLogsByQuestionFn = functions.httpsCallable('getQuestionLogsByQuestion');
 
 export const getQuestionFrequency = async (moduleId: string): Promise<QuestionStats[]> => {
     const result = await getQuestionFrequencyFn({ moduleId });
