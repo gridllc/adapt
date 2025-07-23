@@ -102,14 +102,15 @@ const TemplateWizardPage: React.FC = () => {
         }
     }, [template, user, multiRemoteAnswer, addToast, queryClient, navigate]);
 
-    // This hook must be called at the top level, before any early returns.
+    // FIX: This hook is now called unconditionally before any early returns.
+    // This resolves the "change in the order of Hooks" error which was causing the app to crash.
     useEffect(() => {
-        // If there are no wizard steps (like a multi-remote prompt), proceed directly to creation.
-        // This is now safe because the hook is always called.
-        if (template && wizardStep === 0 && !template.multi_remote_prompt) {
+        // If the template is loaded, and there are no wizard steps (like a multi-remote prompt), 
+        // proceed directly to module creation.
+        if (template && !isLoading && wizardStep === 0 && !template.multi_remote_prompt) {
             handleCreateModule();
         }
-    }, [template, wizardStep, handleCreateModule]);
+    }, [template, isLoading, wizardStep, handleCreateModule]);
 
 
     if (isLoading) {
