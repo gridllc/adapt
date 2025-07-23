@@ -267,7 +267,7 @@ export const ChatTutor: React.FC<ChatTutorProps> = ({ moduleId, sessionToken, st
                     logTutorInteraction({
                         moduleId: moduleId, stepIndex: currentStepIndex, userQuestion: query, tutorResponse: finalModelText,
                         templateId: templateContext?.templateId, stepTitle: intent, remoteType: steps[currentStepIndex]?.remoteType, aliases: detectedUserAliases,
-                    }).catch(err => console.warn("Failed to log interaction to collective memory:", err));
+                    }).catch((err: Error) => console.warn("Failed to log interaction to collective memory:", err));
 
                     const vagueResponseRegex = /\b(i (don’t|do not) (know|have enough|have that info)|i'm sorry|i am sorry|i cannot answer|i can't answer|i am unable to|that information isn't in this specific training)\b/i;
                     if (vagueResponseRegex.test(finalModelText)) {

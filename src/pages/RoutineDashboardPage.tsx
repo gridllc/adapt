@@ -1,13 +1,12 @@
 import React, { useEffect, useState } from "react";
-import { collection, getDocs, query, where } from "firebase/firestore";
 import { Link } from "react-router-dom";
 import { db } from "@/firebase";
 import { Bar } from "react-chartjs-2";
-import { Chart as ChartJS, BarElement, CategoryScale, LinearScale, Tooltip, Legend } from "chart.js";
+import { Chart as ChartJS, registerables } from 'chart.js';
 import type { Routine, TutorLogRow } from "@/types";
 import { SparklesIcon, PlayCircleIcon } from "@/components/Icons";
 
-ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip, Legend);
+ChartJS.register(...registerables);
 
 const RoutineDashboardPage: React.FC = () => {
     const [routines, setRoutines] = useState<Routine[]>([]);
@@ -18,11 +17,10 @@ const RoutineDashboardPage: React.FC = () => {
         const fetchAll = async () => {
             setIsLoading(true);
             try {
-                const rSnap = await getDocs(collection(db, "routines"));
+                const rSnap = await db.collection("routines").get();
 
                 // Querying for tutor logs that are routine-based
-                const logsQuery = query(collection(db, "tutorLogs"), where("remote_type", "==", "ai-routine"));
-                const lSnap = await getDocs(logsQuery);
+                const lSnap = await db.collection("tutorLogs").where("remote_type", "==", "ai-routine").get();
 
                 const rData = rSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() } as Routine));
                 const lData = lSnap.docs.map((doc) => doc.data() as TutorLogRow);
@@ -57,7 +55,7 @@ const RoutineDashboardPage: React.FC = () => {
     useEffect(() => {
         const findSuggestions = async () => {
             if (routines.length > 0) { // Only run if we have routines to compare against
-                const allLogsSnap = await getDocs(collection(db, "tutorLogs"));
+                const allLogsSnap = await db.collection("tutorLogs").get();
                 const allLogs = allLogsSnap.docs.map(doc => doc.data()) as TutorLogRow[];
 
                 const allIntentCounts = allLogs.reduce<Record<string, number>>((acc, log) => {

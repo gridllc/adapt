@@ -3,15 +3,14 @@
 // with the database and Vertex AI Matching Engine.
 
 import { functions } from '@/firebase';
-import { httpsCallable } from 'firebase/functions';
 import type { TutorLog } from '@/types';
 import type { DetectedAlias } from '@/utils/aliasService';
 
 // --- Callable Firebase Functions ---
 // These functions are assumed to be deployed on the backend.
 // They handle embedding generation and vector search.
-const logTutorInteractionFn = httpsCallable(functions, 'logTutorInteraction');
-const findSimilarInteractionsFn = httpsCallable(functions, 'findSimilarInteractions');
+const logTutorInteractionFn = functions.httpsCallable('logTutorInteraction');
+const findSimilarInteractionsFn = functions.httpsCallable('findSimilarInteractions');
 
 interface TutorLogPayload {
     moduleId: string;
