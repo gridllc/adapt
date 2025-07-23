@@ -1,7 +1,11 @@
 
 
 
+
+
+
 import { onCall, HttpsError } from "firebase-functions/v2/https";
+import { setGlobalOptions } from "firebase-functions/v2";
 import * as logger from "firebase-functions/logger";
 import * as admin from "firebase-admin";
 import { GoogleGenAI, Type } from "@google/genai";
@@ -14,17 +18,17 @@ admin.initializeApp();
 const db = admin.firestore();
 const storage = getStorage();
 
-
-// --- Configuration ---
-const corsOptions = {
+// --- Global Configuration ---
+setGlobalOptions({
     cors: [
         /^http:\/\/localhost:\d+$/,
-        /^http:\/\/127\.0\.0\.1:\d+$/,
+        /^http:\/\/127\.0\.1:\d+$/,
         "https://adapt-frontend-rkdt.onrender.com",
         /\.web\.app$/,
         /\.firebaseapp\.com$/,
     ],
-};
+});
+
 const DAILY_TUTOR_LIMIT = 200;
 
 // --- Helper Functions ---
@@ -75,7 +79,7 @@ const cosineSimilarity = (a: number[], b: number[]): number => {
 
 // --- Module Data Functions ---
 
-export const getModule = onCall<{ moduleId: string }>(corsOptions, async (req) => {
+export const getModule = onCall<{ moduleId: string }>(async (req) => {
     const { moduleId } = req.data;
     if (!moduleId) throw new HttpsError("invalid-argument", "A module ID is required.");
     const doc = await db.collection("modules").doc(moduleId).get();
@@ -83,7 +87,7 @@ export const getModule = onCall<{ moduleId: string }>(corsOptions, async (req) =
     return doc.data();
 });
 
-export const getAvailableModules = onCall(corsOptions, async () => {
+export const getAvailableModules = onCall(async () => {
     const modulesSnap = await db.collection("modules").get();
     const sessionsSnap = await db.collection("sessions").get();
 
@@ -111,7 +115,7 @@ export const getAvailableModules = onCall(corsOptions, async () => {
     });
 });
 
-export const saveModule = onCall<{ moduleData: any }>(corsOptions, async (req) => {
+export const saveModule = onCall<{ moduleData: any }>(async (req) => {
     const uid = req.auth?.uid;
     if (!uid) throw new HttpsError("unauthenticated", "You must be logged in.");
 
@@ -136,7 +140,7 @@ export const saveModule = onCall<{ moduleData: any }>(corsOptions, async (req) =
     return { ...doc.data(), ...dataToSave };
 });
 
-export const deleteModule = onCall<{ slug: string }>(corsOptions, async (req) => {
+export const deleteModule = onCall<{ slug: string }>(async (req) => {
     const uid = req.auth?.uid;
     if (!uid) throw new HttpsError("unauthenticated", "You must be logged in.");
 
@@ -184,7 +188,7 @@ export const deleteModule = onCall<{ slug: string }>(corsOptions, async (req) =>
 
 // --- GCS Signed URL Functions ---
 
-export const getSignedUploadUrl = onCall<{ slug: string; contentType: string; fileExtension: string }>(corsOptions, async (req) => {
+export const getSignedUploadUrl = onCall<{ slug: string; contentType: string; fileExtension: string }>(async (req) => {
     const uid = req.auth?.uid;
     if (!uid) throw new HttpsError("unauthenticated", "You must be logged in.");
 
@@ -200,7 +204,7 @@ export const getSignedUploadUrl = onCall<{ slug: string; contentType: string; fi
     return { uploadUrl: url, filePath };
 });
 
-export const getSignedManualUploadUrl = onCall<{ fileName: string; contentType: string }>(corsOptions, async (req) => {
+export const getSignedManualUploadUrl = onCall<{ fileName: string; contentType: string }>(async (req) => {
     const uid = req.auth?.uid;
     if (!uid) throw new HttpsError("unauthenticated", "You must be logged in.");
 
@@ -221,7 +225,7 @@ export const getSignedManualUploadUrl = onCall<{ fileName: string; contentType: 
 });
 
 
-export const getSignedDownloadUrl = onCall<{ filePath: string }>(corsOptions, async (req) => {
+export const getSignedDownloadUrl = onCall<{ filePath: string }>(async (req) => {
     const { filePath } = req.data;
     if (!filePath) throw new HttpsError("invalid-argument", "A file path is required.");
 
@@ -237,13 +241,13 @@ export const getSignedDownloadUrl = onCall<{ filePath: string }>(corsOptions, as
 
 // --- Session & Chat Functions ---
 
-export const getSession = onCall<{ moduleId: string; sessionToken: string }>(corsOptions, async (req) => {
+export const getSession = onCall<{ moduleId: string; sessionToken: string }>(async (req) => {
     const { moduleId, sessionToken } = req.data;
     const snap = await db.collection("sessions").where("module_id", "==", moduleId).where("session_token", "==", sessionToken).limit(1).get();
     return snap.empty ? null : snap.docs[0].data();
 });
 
-export const saveSession = onCall<any>(corsOptions, async (req) => {
+export const saveSession = onCall<any>(async (req) => {
     const { moduleId, sessionToken, ...dataToSave } = req.data;
     const snap = await db.collection("sessions").where("module_id", "==", moduleId).where("session_token", "==", sessionToken).limit(1).get();
 
@@ -257,7 +261,7 @@ export const saveSession = onCall<any>(corsOptions, async (req) => {
     return { success: true };
 });
 
-export const getChatHistory = onCall<{ moduleId: string; sessionToken: string }>(corsOptions, async (req) => {
+export const getChatHistory = onCall<{ moduleId: string; sessionToken: string }>(async (req) => {
     const { moduleId, sessionToken } = req.data;
     const snap = await db.collection("chatMessages")
         .where("module_id", "==", moduleId)
@@ -267,7 +271,7 @@ export const getChatHistory = onCall<{ moduleId: string; sessionToken: string }>
     return snap.docs.map(doc => ({ ...doc.data(), id: doc.id }));
 });
 
-export const saveChatMessage = onCall<{ moduleId: string; sessionToken: string; message: any }>(corsOptions, async (req) => {
+export const saveChatMessage = onCall<{ moduleId: string; sessionToken: string; message: any }>(async (req) => {
     const { moduleId, sessionToken, message } = req.data;
     await db.collection("chatMessages").doc(message.id).set({
         ...message,
@@ -278,7 +282,7 @@ export const saveChatMessage = onCall<{ moduleId: string; sessionToken: string; 
     return { success: true };
 });
 
-export const updateMessageFeedback = onCall<{ messageId: string; feedback: "good" | "bad" }>(corsOptions, async (req) => {
+export const updateMessageFeedback = onCall<{ messageId: string; feedback: "good" | "bad" }>(async (req) => {
     if (!req.auth?.uid) throw new HttpsError("unauthenticated", "Authentication required.");
     const { messageId, feedback } = req.data;
     await db.collection("chatMessages").doc(messageId).update({ feedback });
@@ -302,7 +306,7 @@ interface LogTutorInteractionData {
     aliases?: DetectedAlias[];
 }
 
-export const logTutorInteraction = onCall<LogTutorInteractionData>({ ...corsOptions, secrets: ["API_KEY"] }, async (req) => {
+export const logTutorInteraction = onCall<LogTutorInteractionData>({ secrets: ["API_KEY"] }, async (req) => {
     const uid = req.auth?.uid;
     if (!uid) throw new HttpsError("unauthenticated", "Authentication required.");
 
@@ -369,7 +373,7 @@ export const logTutorInteraction = onCall<LogTutorInteractionData>({ ...corsOpti
     return { status: "logged" };
 });
 
-export const findSimilarInteractions = onCall<{ question: string; moduleId: string }>({ ...corsOptions, secrets: ["API_KEY"] }, async (req) => {
+export const findSimilarInteractions = onCall<{ question: string; moduleId: string }>({ secrets: ["API_KEY"] }, async (req) => {
     if (!req.auth?.uid) throw new HttpsError("unauthenticated", "Authentication required.");
     const { question, moduleId } = req.data;
     const queryVector = await generateEmbedding(question);
@@ -419,7 +423,7 @@ const refinementSchema = {
 };
 
 export const refineStep = onCall<{ moduleId: string; stepIndex: number }>(
-    { ...corsOptions, secrets: ["API_KEY"] },
+    { secrets: ["API_KEY"] },
     async (request): Promise<{ suggestion: any }> => {
         if (!request.auth?.uid) throw new HttpsError("unauthenticated", "Authentication required.");
         const ai = getAiClient();
@@ -468,7 +472,6 @@ export const refineStep = onCall<{ moduleId: string; stepIndex: number }>(
 );
 
 export const flagQuestion = onCall<any>(
-    corsOptions,
     async (request): Promise<{ status: string; issueId: string }> => {
         const uid = request.auth?.uid;
         if (!uid) {
@@ -490,7 +493,6 @@ export const flagQuestion = onCall<any>(
 );
 
 export const getFlaggedQuestions = onCall<{ moduleId: string }>(
-    corsOptions,
     async (request): Promise<any[]> => {
         const uid = request.auth?.uid;
         if (!uid) throw new HttpsError("unauthenticated", "You must be logged in.");
@@ -512,7 +514,7 @@ export const getFlaggedQuestions = onCall<{ moduleId: string }>(
     }
 );
 
-export const getCheckpointFailureStats = onCall<{ moduleId: string }>(corsOptions, async (request) => {
+export const getCheckpointFailureStats = onCall<{ moduleId: string }>(async (request) => {
     const { moduleId } = request.data;
     const snapshot = await db.collection("checkpointResponses")
         .where("module_id", "==", moduleId)
@@ -531,7 +533,7 @@ export const getCheckpointFailureStats = onCall<{ moduleId: string }>(corsOption
     return Object.values(stats).sort((a, b) => b.count - a.count);
 });
 
-export const getQuestionFrequency = onCall<{ moduleId: string }>(corsOptions, async (request) => {
+export const getQuestionFrequency = onCall<{ moduleId: string }>(async (request) => {
     const { moduleId } = request.data;
     if (!moduleId) throw new HttpsError("invalid-argument", "Module ID is required.");
 
@@ -553,7 +555,7 @@ export const getQuestionFrequency = onCall<{ moduleId: string }>(corsOptions, as
 
 // --- Suggestions Service Functions ---
 
-export const submitSuggestion = onCall<any>(corsOptions, async (req) => {
+export const submitSuggestion = onCall<any>(async (req) => {
     const uid = req.auth?.uid; // Can be anonymous
     const { moduleId, stepIndex, text } = req.data;
     const ref = await db.collection("traineeSuggestions").add({
@@ -567,7 +569,7 @@ export const submitSuggestion = onCall<any>(corsOptions, async (req) => {
     return { id: ref.id, ...req.data };
 });
 
-export const deleteTraineeSuggestion = onCall<{ suggestionId: string }>(corsOptions, async (req) => {
+export const deleteTraineeSuggestion = onCall<{ suggestionId: string }>(async (req) => {
     if (!req.auth?.uid) throw new HttpsError("unauthenticated", "Authentication required.");
     await db.collection("traineeSuggestions").doc(req.data.suggestionId).delete();
     return { success: true };
@@ -575,7 +577,7 @@ export const deleteTraineeSuggestion = onCall<{ suggestionId: string }>(corsOpti
 
 // --- Checkpoint Service Functions ---
 
-export const logCheckpointResponse = onCall<any>(corsOptions, async (req) => {
+export const logCheckpointResponse = onCall<any>(async (req) => {
     const { moduleId, userId, stepIndex, checkpointText, answer, comment } = req.data;
     await db.collection("checkpointResponses").add({
         module_id: moduleId,
@@ -591,7 +593,7 @@ export const logCheckpointResponse = onCall<any>(corsOptions, async (req) => {
 
 // --- Feedback Service Functions (for Live Coach) ---
 
-export const logAiFeedback = onCall<any>(corsOptions, async (req) => {
+export const logAiFeedback = onCall<any>(async (req) => {
     const { sessionToken, moduleId, stepIndex, userPrompt, aiResponse, feedback } = req.data;
     const ref = await db.collection("feedbackLogs").add({
         sessionToken, moduleId, stepIndex, userPrompt, aiResponse, feedback,
@@ -600,7 +602,7 @@ export const logAiFeedback = onCall<any>(corsOptions, async (req) => {
     return { logId: ref.id };
 });
 
-export const updateFeedbackWithFix = onCall<any>({ ...corsOptions, secrets: ["API_KEY"] }, async (req) => {
+export const updateFeedbackWithFix = onCall<any>({ secrets: ["API_KEY"] }, async (req) => {
     const { logId, fixOrRating } = req.data;
     const updateData: { feedback: "good" | "bad", userFixText?: string, fixEmbedding?: number[] } = {
         feedback: fixOrRating === "good" ? "good" : "bad",
@@ -616,7 +618,7 @@ export const updateFeedbackWithFix = onCall<any>({ ...corsOptions, secrets: ["AP
 
 // --- Routines Service Functions ---
 
-export const saveRoutine = onCall<any>(corsOptions, async (req) => {
+export const saveRoutine = onCall<any>(async (req) => {
     const uid = req.auth?.uid;
     if (!uid) throw new HttpsError("unauthenticated", "Authentication required.");
 
@@ -639,7 +641,7 @@ export const saveRoutine = onCall<any>(corsOptions, async (req) => {
     }
 });
 
-export const getRoutineForIntent = onCall<{ templateId: string; intent: string }>(corsOptions, async (req) => {
+export const getRoutineForIntent = onCall<{ templateId: string; intent: string }>(async (req) => {
     const { templateId, intent } = req.data;
     const snap = await db.collection("routines")
         .where("templateId", "==", templateId)
@@ -653,7 +655,7 @@ export const getRoutineForIntent = onCall<{ templateId: string; intent: string }
     return { id: doc.id, ...doc.data() };
 });
 
-export const getSignedRoutineVideoUploadUrl = onCall<any>(corsOptions, async (req) => {
+export const getSignedRoutineVideoUploadUrl = onCall<any>(async (req) => {
     const uid = req.auth?.uid;
     if (!uid) throw new HttpsError("unauthenticated", "Authentication required.");
 
