@@ -4,7 +4,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/hooks/useToast';
 import { useAuth } from '@/hooks/useAuth';
 import { saveModule } from '@/services/moduleService';
-import type { ProcessStep, AppModule, ModuleForInsert, Json } from '@/types';
+import type { ProcessStep, AppModule, ModuleForInsert, Json, TemplateContext } from '@/types';
 import { SparklesIcon, ArrowLeftIcon } from '@/components/Icons';
 
 interface Template {
@@ -12,7 +12,7 @@ interface Template {
     title: string;
     multi_remote_prompt?: string;
     ai_context_notes?: string;
-    buttons?: any[];
+    buttons?: { name: string, symbol: string, function: string }[];
     steps: {
         remoteType?: 'A' | 'B';
         title: string;
@@ -74,19 +74,25 @@ const TemplateWizardPage: React.FC = () => {
                 alternativeMethods: [],
             }));
 
+            const templateContext: TemplateContext = {};
+            if (template.ai_context_notes) {
+                templateContext.ai_context_notes = template.ai_context_notes;
+            }
+            if (template.buttons) {
+                templateContext.buttons = template.buttons;
+            }
+
             const moduleToSave: ModuleForInsert = {
                 slug: template.id + '-' + Date.now(), // Ensure unique slug
                 title: template.title,
                 steps: moduleSteps as unknown as Json,
                 transcript: [],
+                video_url: null,
                 metadata: {
                     is_ai_generated: true,
                     templateId: template.id,
-                    templateContext: {
-                        ai_context_notes: template.ai_context_notes,
-                        buttons: template.buttons,
-                    }
-                } as Json,
+                    templateContext: templateContext
+                },
                 user_id: user.uid,
             };
 
@@ -102,11 +108,11 @@ const TemplateWizardPage: React.FC = () => {
         }
     }, [template, user, multiRemoteAnswer, addToast, queryClient, navigate]);
 
-    // FIX: This hook is now called unconditionally before any early returns.
+    // FIX: This hook is now called unconditionally at the top level of the component.
     // This resolves the "change in the order of Hooks" error which was causing the app to crash.
     useEffect(() => {
-        // If the template is loaded, and there are no wizard steps (like a multi-remote prompt), 
-        // proceed directly to module creation.
+        // The logic inside the hook remains conditional. If the template is loaded and there are 
+        // no wizard steps (like a multi-remote prompt), we proceed directly to module creation.
         if (template && !isLoading && wizardStep === 0 && !template.multi_remote_prompt) {
             handleCreateModule();
         }
