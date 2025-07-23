@@ -1,6 +1,5 @@
 
 
-
 export type Json =
     | string
     | number
@@ -33,6 +32,12 @@ export interface ProcessStep {
     [key: string]: Json | undefined;
 }
 
+export type TemplateContext = {
+    ai_context_notes?: string;
+    buttons?: { name: string, symbol: string, function: string }[];
+    templateId?: string;
+};
+
 // Stricter application-level types for modules
 export interface AppModule {
     slug: string;
@@ -43,10 +48,8 @@ export interface AppModule {
     metadata: {
         is_ai_generated?: boolean;
         templateId?: string;
-        templateContext?: {
-            ai_context_notes?: string;
-            buttons?: any[];
-        };
+        templateContext?: TemplateContext;
+        source_model?: string;
         [key: string]: Json | undefined;
     } | null;
     user_id: string | null;

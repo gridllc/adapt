@@ -1,23 +1,36 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import {
-    getTranscriptWithConfidence,
-    generateModuleFromContext,
-} from '@/services/geminiService';
+import { getTranscriptWithConfidence, generateModuleFromContext, generateModuleFromModelNumber } from '@/services/geminiService';
+import { uploadManualForProcessing } from '@/services/manualService';
 import type { GeneratedModuleData, TranscriptAnalysis } from '@/services/geminiService';
 import { saveModule } from '@/services/moduleService';
 import { ModuleEditor } from '@/components/ModuleEditor';
 import { TranscriptEditor } from '@/components/TranscriptEditor';
 import type { TranscriptLine, VideoMetadata, AppModule, ModuleForInsert, Json } from '@/types';
-import { UploadCloudIcon, XIcon, SparklesIcon, VideoIcon, LightbulbIcon, FileTextIcon } from '@/components/Icons';
+import { UploadCloudIcon, XIcon, SparklesIcon, VideoIcon, LightbulbIcon, FileTextIcon, ArrowLeftIcon, TvIcon, FileJsonIcon } from '@/components/Icons';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/useToast';
 import { VideoPlayer } from '@/components/VideoPlayer';
 
-type FlowStep = 'initial' | 'analyzing' | 'review' | 'generating' | 'final';
-type ActiveTab = 'ai' | 'upload';
+// Hook to prompt user to save as routine
+const useRoutinePrompt = (onConfirm: () => void) => {
+    const [showPrompt, setShowPrompt] = useState(false);
+    const triggerPrompt = () => setShowPrompt(true);
+    const cancelPrompt = () => setShowPrompt(false);
+    const confirmPrompt = () => {
+        setShowPrompt(false);
+        onConfirm();
+    };
+    return { showPrompt, triggerPrompt, cancelPrompt, confirmPrompt };
+};
 
+// Defaults for AI context when creating modules from scratch
+const DEFAULT_TEMPLATE_ID = 'generic-template';
+const DEFAULT_INTENT = 'general-training';
+
+type CreationMode = 'selection' | 'video' | 'model' | 'manual' | 'jsonUpload';
+type FlowStep = 'initial' | 'analyzing' | 'review' | 'generating' | 'final';
 
 const CreatePage: React.FC = () => {
     const navigate = useNavigate();
@@ -26,13 +39,16 @@ const CreatePage: React.FC = () => {
     const { addToast } = useToast();
 
     // --- Core state ---
-    const [activeTab, setActiveTab] = useState<ActiveTab>('ai');
+    const [creationMode, setCreationMode] = useState<CreationMode>('selection');
     const [isDragging, setIsDragging] = useState(false);
 
-    // --- AI Flow State ---
+    // --- Flow State (shared across modes) ---
     const [flowStep, setFlowStep] = useState<FlowStep>('initial');
     const [title, setTitle] = useState('');
     const [notes, setNotes] = useState('');
+    const [brand, setBrand] = useState('');
+    const [model, setModel] = useState('');
+    const [manualFile, setManualFile] = useState<File | null>(null);
     const [videoFile, setVideoFile] = useState<File | null>(null);
     const [videoUrl, setVideoUrl] = useState<string | null>(null);
     const [videoMetadata, setVideoMetadata] = useState<VideoMetadata | null>(null);
@@ -40,6 +56,12 @@ const CreatePage: React.FC = () => {
     const [editedTranscript, setEditedTranscript] = useState<TranscriptLine[]>([]);
     const [generatedModule, setGeneratedModule] = useState<AppModule | null>(null);
     const [isSaving, setIsSaving] = useState(false);
+
+    // Routine prompt hook
+    const { showPrompt, triggerPrompt, cancelPrompt, confirmPrompt } = useRoutinePrompt(() => {
+        // TODO: In a future step, this could navigate to a routine editor pre-filled with this module's data.
+        addToast('success', 'Routine Saved', 'This module has been saved as a reusable routine.');
+    });
 
     // --- Refs and state for video player integration ---
     const videoRef = useRef<HTMLVideoElement>(null);
@@ -50,36 +72,33 @@ const CreatePage: React.FC = () => {
         if (!isAuthenticated) navigate('/login');
     }, [isAuthenticated, navigate]);
 
-    // Effect to clean up the blob URL on unmount
     useEffect(() => {
         const urlToClean = videoBlobUrlRef.current;
-        return () => {
-            if (urlToClean) {
-                URL.revokeObjectURL(urlToClean);
-            }
-        };
+        return () => { if (urlToClean) URL.revokeObjectURL(urlToClean); };
     }, []);
+
+    const resetForm = useCallback(() => {
+        if (videoBlobUrlRef.current) URL.revokeObjectURL(videoBlobUrlRef.current);
+        videoBlobUrlRef.current = null;
+        setFlowStep('initial'); setTitle(''); setNotes(''); setVideoFile(null); setVideoUrl(null); setVideoMetadata(null); setAnalysisResult(null); setGeneratedModule(null); setEditedTranscript([]); setIsSaving(false); setBrand(''); setModel(''); setManualFile(null);
+    }, []);
+
+    const handleBackToSelection = () => {
+        resetForm();
+        setCreationMode('selection');
+    };
 
     // --- Module Upload Logic ---
     const handleModuleUpload = useCallback(async (file: File) => {
-        if (!user) {
-            addToast('error', 'Authentication Error', 'You must be logged in to upload a module.');
-            return;
-        }
-        if (file.type !== 'application/json') {
-            addToast('error', 'Invalid File', 'Please upload a .json file.');
-            return;
-        }
+        if (!user) { addToast('error', 'Authentication Error', 'You must be logged in to upload a module.'); return; }
+        if (file.type !== 'application/json') { addToast('error', 'Invalid File', 'Please upload a .json file.'); return; }
         const reader = new FileReader();
         reader.onload = async (e) => {
             try {
                 const text = e.target?.result;
                 if (typeof text !== 'string') throw new Error("Could not read file.");
                 const moduleData = JSON.parse(text) as ModuleForInsert;
-
-                const moduleToSave = { ...moduleData, user_id: user.uid };
-
-                const savedModule = await saveModule({ moduleData: moduleToSave });
+                const savedModule = await saveModule({ moduleData: { ...moduleData, user_id: user.uid } });
                 await queryClient.invalidateQueries({ queryKey: ['modules'] });
                 addToast('success', 'Upload Complete', `Module "${savedModule.title}" was imported.`);
                 navigate(`/modules/${savedModule.slug}/edit`);
@@ -92,164 +111,131 @@ const CreatePage: React.FC = () => {
         reader.readAsText(file);
     }, [navigate, queryClient, addToast, user]);
 
-
     // --- AI Video Processing Logic ---
-    const processVideoFile = useCallback((file: File | null | undefined) => {
-        if (!file) return;
-        if (!file.type.startsWith('video/')) {
-            addToast('error', 'Invalid File Type', 'Please upload a video file.');
-            return;
-        }
+    const processVideoFile = useCallback((file: File) => {
+        if (!file.type.startsWith('video/')) { addToast('error', 'Invalid File Type', 'Please upload a video file.'); return; }
         if (videoBlobUrlRef.current) URL.revokeObjectURL(videoBlobUrlRef.current);
         const newUrl = URL.createObjectURL(file);
         videoBlobUrlRef.current = newUrl;
-        setVideoUrl(newUrl);
-        setVideoFile(file);
-        const videoElement = document.createElement('video');
-        videoElement.preload = 'metadata';
-        videoElement.onloadedmetadata = () => {
-            setVideoMetadata({
-                originalName: file.name,
-                size: file.size,
-                duration: Math.round(videoElement.duration),
-                width: videoElement.videoWidth,
-                height: videoElement.videoHeight,
-            });
-        };
-        videoElement.onerror = () => addToast('error', 'Metadata Error', 'Could not read metadata from the video file.');
-        videoElement.src = newUrl;
+        setVideoUrl(newUrl); setVideoFile(file);
+        const v = document.createElement('video');
+        v.preload = 'metadata';
+        v.onloadedmetadata = () => setVideoMetadata({ originalName: file.name, size: file.size, duration: Math.round(v.duration), width: v.videoWidth, height: v.videoHeight });
+        v.onerror = () => addToast('error', 'Metadata Error', 'Could not read metadata from the video file.');
+        v.src = newUrl;
     }, [addToast]);
 
-    const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>, forUpload: boolean) => {
-        const file = event.target.files?.[0];
+    // --- Centralized File Handling ---
+    const handleFileSelected = useCallback((file: File | undefined | null) => {
         if (!file) return;
-        if (forUpload) {
-            handleModuleUpload(file);
-        } else {
-            processVideoFile(file);
+        switch (creationMode) {
+            case 'video':
+                processVideoFile(file);
+                break;
+            case 'manual':
+                setManualFile(file);
+                break;
+            case 'jsonUpload':
+                handleModuleUpload(file);
+                break;
+            default:
+                addToast('error', 'Invalid Action', 'File handling is not available in this context.');
         }
+    }, [creationMode, processVideoFile, handleModuleUpload, addToast]);
+
+    const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+        handleFileSelected(event.target.files?.[0]);
     };
 
-    const handleRemoveVideo = useCallback(() => {
-        if (videoBlobUrlRef.current) {
-            URL.revokeObjectURL(videoBlobUrlRef.current);
-            videoBlobUrlRef.current = null;
-        }
-        setVideoUrl(null);
-        setVideoFile(null);
-        setVideoMetadata(null);
-    }, []);
+    const handleDrop = useCallback((event: React.DragEvent<HTMLLabelElement>) => {
+        event.preventDefault(); event.stopPropagation(); setIsDragging(false);
+        handleFileSelected(event.dataTransfer.files?.[0]);
+    }, [handleFileSelected]);
 
-    const handleDrop = useCallback((event: React.DragEvent<HTMLLabelElement>, forUpload: boolean) => {
-        event.preventDefault();
-        event.stopPropagation();
-        setIsDragging(false);
-        const file = event.dataTransfer.files?.[0];
-        if (!file) return;
-        if (forUpload) {
-            handleModuleUpload(file);
-        } else {
-            processVideoFile(file);
-        }
-    }, [processVideoFile, handleModuleUpload]);
+    const handleDragEvents = {
+        onDragOver: (e: React.DragEvent<HTMLLabelElement>) => { e.preventDefault(); e.stopPropagation(); },
+        onDragEnter: (e: React.DragEvent<HTMLLabelElement>) => { e.preventDefault(); e.stopPropagation(); setIsDragging(true); },
+        onDragLeave: (e: React.DragEvent<HTMLLabelElement>) => { e.preventDefault(); e.stopPropagation(); setIsDragging(false); },
+    };
 
-    const handleDragOver = (event: React.DragEvent<HTMLLabelElement>) => { event.preventDefault(); event.stopPropagation(); };
-    const handleDragEnter = (event: React.DragEvent<HTMLLabelElement>) => { event.preventDefault(); event.stopPropagation(); setIsDragging(true); };
-    const handleDragLeave = (event: React.DragEvent<HTMLLabelElement>) => { event.preventDefault(); event.stopPropagation(); setIsDragging(false); };
-
-    // Step 1: Analyze Video
     const handleAnalyzeVideo = async () => {
-        if (!videoFile || !title.trim()) {
-            addToast('error', 'Input Required', 'Please provide a title and a video file.');
-            return;
-        }
+        if (!videoFile || !title.trim()) { addToast('error', 'Input Required', 'Please provide a title and a video file.'); return; }
         setFlowStep('analyzing');
         try {
-            addToast('info', 'Analyzing Video...', 'AI is transcribing the video. This may take a moment.');
+            addToast('info', 'Analyzing Video...', 'AI is transcribing. This may take a moment.');
             const result = await getTranscriptWithConfidence(videoFile);
-            setAnalysisResult(result);
-            setEditedTranscript(result.transcript);
+            setAnalysisResult(result); setEditedTranscript(result.transcript);
             addToast('success', 'Analysis Complete', `AI confidence: ${(result.confidence * 100).toFixed(0)}%`);
             setFlowStep('review');
         } catch (err) {
-            const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred.';
-            addToast('error', 'Analysis Failed', errorMessage);
+            addToast('error', 'Analysis Failed', err instanceof Error ? err.message : 'An unknown error occurred.');
             setFlowStep('initial');
         }
     };
 
-    // Step 2: Generate Module
     const handleGenerateModule = async () => {
         if (!analysisResult || !title || !videoFile) return;
         setFlowStep('generating');
         try {
             const transcriptText = editedTranscript.map(line => line.text).join('\n');
             const moduleData = await generateModuleFromContext({ title, transcript: transcriptText, notes, confidence: analysisResult.confidence });
-
-            const timedModuleData: GeneratedModuleData = { ...moduleData, steps: [] };
-            timedModuleData.steps = moduleData.steps.map(generatedStep => {
-                const bestLine = editedTranscript.find(line => line.text.includes(generatedStep.title) || generatedStep.description.includes(line.text.substring(0, 30)));
-                return { ...generatedStep, start: bestLine?.start ?? 0, end: bestLine?.end ?? 0 };
-            });
-
-            const finalModule: AppModule = {
-                ...timedModuleData,
-                transcript: editedTranscript,
-                created_at: new Date().toISOString(),
-                metadata: { is_ai_generated: true },
-                user_id: user?.uid ?? null,
-                video_url: null,
-            };
-
-            setGeneratedModule(finalModule);
+            const timedModuleData: GeneratedModuleData = { ...moduleData, steps: moduleData.steps.map(step => ({ ...step, start: editedTranscript.find(l => l.text.includes(step.title) || step.description.includes(l.text.substring(0, 30)))?.start ?? 0, end: editedTranscript.find(l => l.text.includes(step.title) || step.description.includes(l.text.substring(0, 30)))?.end ?? 0 })) };
+            setGeneratedModule({ ...timedModuleData, transcript: editedTranscript, created_at: new Date().toISOString(), metadata: { is_ai_generated: true, templateId: DEFAULT_TEMPLATE_ID, intent: DEFAULT_INTENT }, user_id: user?.uid ?? null, video_url: null });
             setFlowStep('final');
-            addToast('success', 'Module Generated', 'Review the final draft and save your training!');
+            triggerPrompt();
+            addToast('success', 'Module Generated', 'Review the final draft and save!');
         } catch (err) {
-            const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred.';
-            addToast('error', 'Generation Failed', errorMessage);
+            addToast('error', 'Generation Failed', err instanceof Error ? err.message : 'An unknown error occurred.');
             setFlowStep('review');
         }
     };
 
-    // Step 3: Save to DB
+    const handleGenerateFromModel = async () => {
+        if (!brand.trim() || !model.trim()) { addToast('error', 'Input Required', 'Please provide a brand and model.'); return; }
+        setFlowStep('generating');
+        try {
+            addToast('info', 'Searching for Device...', 'AI is generating steps from the model number.');
+            const moduleData = await generateModuleFromModelNumber(brand, model);
+            setGeneratedModule({ ...moduleData, transcript: [], created_at: new Date().toISOString(), metadata: { is_ai_generated: true, source_model: `${brand} ${model}`, templateId: DEFAULT_TEMPLATE_ID, intent: DEFAULT_INTENT }, user_id: user?.uid ?? null, video_url: null });
+            setFlowStep('final');
+            triggerPrompt();
+            addToast('success', 'Module Generated', 'Review the AI-generated steps.');
+        } catch (err) {
+            addToast('error', 'Generation Failed', err instanceof Error ? err.message : 'An unknown error occurred.');
+            setFlowStep('initial');
+        }
+    };
+
+    const handleManualUpload = async () => {
+        if (!manualFile) { addToast('error', 'File Required', 'Please select a manual file to upload.'); return; }
+        setFlowStep('generating');
+        try {
+            addToast('info', 'Uploading Manual...', 'Your file is being securely uploaded.');
+            await uploadManualForProcessing(manualFile);
+            addToast('success', 'Upload Complete!', 'Your manual has been submitted. This feature is in development, and the AI will be able to use it soon.');
+            setTimeout(() => { resetForm(); setCreationMode('selection'); }, 2000);
+        } catch (err) {
+            addToast('error', 'Upload Failed', err instanceof Error ? err.message : 'Could not upload the manual.');
+            setFlowStep('initial');
+        }
+    };
+
     const handleSave = async () => {
         if (!generatedModule || !user) return;
         setIsSaving(true);
         try {
-            const moduleToSave: ModuleForInsert = {
-                slug: generatedModule.slug,
-                title: generatedModule.title,
-                steps: generatedModule.steps as unknown as Json,
-                transcript: generatedModule.transcript as unknown as Json,
-                video_url: videoFile ? '' : null,
-                metadata: { ...(videoFile ? videoMetadata : {}), is_ai_generated: true } as Json,
-                user_id: user.uid,
-            };
+            const moduleToSave: ModuleForInsert = { slug: generatedModule.slug, title: generatedModule.title, steps: generatedModule.steps as unknown as Json, transcript: generatedModule.transcript as unknown as Json, video_url: videoFile ? '' : null, metadata: { ...(videoFile ? videoMetadata : {}), ...(generatedModule.metadata || {}) } as Json, user_id: user.uid };
             const savedModule = await saveModule({ moduleData: moduleToSave, videoFile });
-            await queryClient.invalidateQueries({ queryKey: ['module', savedModule.slug] });
+            await queryClient.invalidateQueries({ queryKey: ['module', savedModule.slug], exact: true });
+            await queryClient.invalidateQueries({ queryKey: ['modules'], exact: true });
             addToast('success', 'Module Saved', `Navigating to new training: "${savedModule.title}"`);
             navigate(`/modules/${savedModule.slug}`);
         } catch (err) {
-            const errorMessage = err instanceof Error ? err.message : 'Could not save the module. Please try again.';
-            addToast('error', 'Save Failed', errorMessage);
+            addToast('error', 'Save Failed', err instanceof Error ? err.message : 'Could not save the module.');
         } finally {
             setIsSaving(false);
         }
     };
-
-    const resetForm = useCallback(async () => {
-        if (videoBlobUrlRef.current) URL.revokeObjectURL(videoBlobUrlRef.current);
-        setFlowStep('initial');
-        setTitle('');
-        setNotes('');
-        setVideoFile(null);
-        setVideoUrl(null);
-        setVideoMetadata(null);
-        setAnalysisResult(null);
-        setGeneratedModule(null);
-        setEditedTranscript([]);
-        setIsSaving(false);
-    }, []);
 
     const handleSeek = useCallback((time: number) => {
         if (videoRef.current) {
@@ -259,164 +245,179 @@ const CreatePage: React.FC = () => {
     }, []);
 
     const handleTranscriptChange = useCallback((index: number, newText: string) => {
-        const newTranscript = [...editedTranscript];
-        newTranscript[index] = { ...newTranscript[index], text: newText };
-        setEditedTranscript(newTranscript);
-    }, [editedTranscript]);
+        setEditedTranscript(prev => prev.map((line, i) => i === index ? { ...line, text: newText } : line));
+    }, []);
 
-    const renderInitialStep = () => (
-        <div className="bg-slate-100 dark:bg-slate-800 p-8 rounded-2xl shadow-xl animate-fade-in-up">
-            <div className="max-w-2xl mx-auto">
-                <h2 className="text-2xl font-bold text-indigo-500 dark:text-indigo-400 mb-2 text-center">📹 1. Add your content</h2>
-                <p className="text-slate-600 dark:text-slate-300 mb-6 text-center">Give your training a title and upload a video. The AI will analyze it to create a transcript.</p>
-                <div className="space-y-6">
-                    <div>
-                        <label htmlFor="title" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Training Title</label>
-                        <input id="title" type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g., How to Make the Perfect Sandwich" className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
-                    </div>
-                    <div>
-                        <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Upload Video</label>
-                        {videoFile && videoUrl ? (
-                            <div>
-                                <div className="bg-slate-200 dark:bg-slate-900/50 p-3 rounded-lg flex items-center justify-between">
-                                    <div className="flex items-center gap-3"><VideoIcon className="h-6 w-6 text-indigo-500 dark:text-indigo-400" /><span className="text-sm font-medium text-slate-800 dark:text-slate-200 truncate">{videoFile.name}</span></div>
-                                    <button onClick={handleRemoveVideo} className="p-1 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white" disabled={flowStep !== 'initial'}><XIcon className="h-5 w-5" /></button>
-                                </div>
-                                <div className="mt-4 rounded-lg overflow-hidden border border-slate-300 dark:border-slate-700"><VideoPlayer video_url={videoUrl} onTimeUpdate={() => { }} /></div>
-                            </div>
-                        ) : (
-                            <label onDrop={(e) => handleDrop(e, false)} onDragOver={handleDragOver} onDragEnter={handleDragEnter} onDragLeave={handleDragLeave} className={`flex flex-col items-center justify-center w-full h-40 px-4 transition bg-white dark:bg-slate-900 border-2 ${isDragging ? 'border-indigo-400' : 'border-slate-300 dark:border-slate-700'} border-dashed rounded-md appearance-none cursor-pointer hover:border-indigo-500 focus:outline-none`}>
-                                <UploadCloudIcon className={`w-10 h-10 ${isDragging ? 'text-indigo-400' : 'text-slate-400 dark:text-slate-500'}`} />
-                                <div className="mt-2 text-center"><p className="font-medium text-slate-600 dark:text-slate-300">Tap or click to choose a video</p><p className="text-xs text-slate-500 dark:text-slate-400">You&apos;ll be able to record with your phone or choose from your device.</p></div>
-                                <input type="file" name="file_upload" className="hidden" accept="video/*" onChange={(e) => handleFileChange(e, false)} />
-                            </label>
-                        )}
-                    </div>
-                    <div>
-                        <details className="group">
-                            <summary className="list-none flex items-center gap-2 cursor-pointer text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Additional Notes (Optional)<span className="text-slate-400 group-hover:text-slate-600"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg></span></summary>
-                            <textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="e.g., This training is for absolute beginners. Keep the language simple." className="w-full h-24 p-4 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500" />
-                        </details>
-                    </div>
-                </div>
-                <div className="mt-8 text-center"><button onClick={handleAnalyzeVideo} disabled={!videoFile || !title.trim()} className="bg-indigo-600 text-white font-bold py-3 px-8 rounded-lg disabled:bg-slate-400 dark:disabled:bg-slate-500 disabled:cursor-not-allowed hover:bg-indigo-700 transition-colors transform hover:scale-105 flex items-center justify-center gap-2 mx-auto"><SparklesIcon className="h-6 w-6" />Analyze & Transcribe</button></div>
+    // --- RENDER FUNCTIONS ---
+    const renderSelection = () => (
+        <div className="max-w-4xl mx-auto animate-fade-in-up">
+            <h2 className="text-3xl font-bold text-center text-slate-900 dark:text-white mb-2">How do you want to create?</h2>
+            <p className="text-slate-500 dark:text-slate-400 text-center mb-8">Choose one of the AI-powered methods below.</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                <button onClick={() => setCreationMode('video')} className="p-6 bg-white dark:bg-slate-800 rounded-xl text-center hover:ring-2 hover:ring-indigo-500 transition-all transform hover:-translate-y-1 shadow-md hover:shadow-xl"><VideoIcon className="h-10 w-10 mx-auto text-indigo-500 mb-3" /><h3 className="font-bold text-lg">From Video</h3><p className="text-sm text-slate-500 dark:text-slate-400">Upload a video for transcription and step generation.</p></button>
+                <button onClick={() => setCreationMode('model')} className="p-6 bg-white dark:bg-slate-800 rounded-xl text-center hover:ring-2 hover:ring-indigo-500 transition-all transform hover:-translate-y-1 shadow-md hover:shadow-xl"><TvIcon className="h-10 w-10 mx-auto text-indigo-500 mb-3" /><h3 className="font-bold text-lg">From Device Model</h3><p className="text-sm text-slate-500 dark:text-slate-400">Provide a model number for AI to find instructions.</p></button>
+                <button onClick={() => setCreationMode('manual')} className="p-6 bg-white dark:bg-slate-800 rounded-xl text-center hover:ring-2 hover:ring-indigo-500 transition-all transform hover:-translate-y-1 shadow-md hover:shadow-xl"><FileTextIcon className="h-10 w-10 mx-auto text-indigo-500 mb-3" /><h3 className="font-bold text-lg">From a Manual</h3><p className="text-sm text-slate-500 dark:text-slate-400">Upload a document for the AI to learn from.</p></button>
+                <button onClick={() => setCreationMode('jsonUpload')} className="p-6 bg-white dark:bg-slate-800 rounded-xl text-center hover:ring-2 hover:ring-indigo-500 transition-all transform hover:-translate-y-1 shadow-md hover:shadow-xl"><FileJsonIcon className="h-10 w-10 mx-auto text-indigo-500 mb-3" /><h3 className="font-bold text-lg">Upload Existing</h3><p className="text-sm text-slate-500 dark:text-slate-400">Import a previously exported `.json` module file.</p></button>
             </div>
         </div>
     );
 
-    const renderReviewStep = () => (
-        <div className="animate-fade-in-up">
-            <div className="text-center mb-8">
-                <h2 className="text-2xl font-bold text-indigo-500 dark:text-indigo-400 mb-2">📝 2. Review AI Transcript</h2>
-                <p className="text-slate-600 dark:text-slate-300">Correct any mistakes in the AI-generated transcript. A good transcript is key for creating accurate steps.</p>
-            </div>
-            {analysisResult && videoUrl &&
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                    <div className="lg:col-span-1 lg:sticky top-6 space-y-4">
-                        <VideoPlayer ref={videoRef} video_url={videoUrl} onTimeUpdate={setCurrentTime} />
-                        <div className="p-4 bg-slate-100 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700">
-                            <h3 className="font-bold mb-2 text-slate-800 dark:text-slate-100">Analysis Details</h3>
-                            <div className="flex items-center justify-between text-sm">
-                                <span className="text-slate-600 dark:text-slate-300">AI Confidence</span>
-                                <span className="font-bold text-indigo-600 dark:text-indigo-400">{(analysisResult.confidence * 100).toFixed(0)}%</span>
-                            </div>
-                            {analysisResult.uncertainWords.length > 0 && (
-                                <div className="mt-3">
-                                    <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-1">Uncertain Words</h4>
-                                    <div className="flex flex-wrap gap-2">
-                                        {analysisResult.uncertainWords.map((word, i) => (
-                                            <span key={i} className="bg-yellow-200 dark:bg-yellow-900/50 text-yellow-800 dark:text-yellow-300 text-xs font-mono px-2 py-1 rounded">{word}</span>
-                                        ))}
-                                    </div>
-                                </div>
-                            )}
+    const renderVideoInitial = () => (
+        <div className="bg-slate-100 dark:bg-slate-800 p-8 rounded-2xl shadow-xl animate-fade-in-up">
+            <h2 className="text-2xl font-bold text-indigo-500 dark:text-indigo-400 mb-6 text-center">1. Create from Video</h2>
+            <div className="max-w-2xl mx-auto space-y-6">
+                <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Training Title (e.g., How to Make a Sandwich)" className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                {videoFile && videoUrl ? (
+                    <div>
+                        <div className="bg-slate-200 dark:bg-slate-900/50 p-3 rounded-lg flex items-center justify-between">
+                            <div className="flex items-center gap-3"><VideoIcon className="h-6 w-6 text-indigo-500" /><span className="text-sm font-medium truncate">{videoFile.name}</span></div>
+                            <button onClick={() => { setVideoFile(null); setVideoUrl(null); if (videoBlobUrlRef.current) URL.revokeObjectURL(videoBlobUrlRef.current); videoBlobUrlRef.current = null; }} className="p-1 text-slate-500"><XIcon className="h-5 w-5" /></button>
                         </div>
+                        <div className="mt-4 rounded-lg overflow-hidden border border-slate-300 dark:border-slate-700"><VideoPlayer video_url={videoUrl} onTimeUpdate={() => { }} /></div>
                     </div>
+                ) : (
+                    <label onDrop={handleDrop} {...handleDragEvents} className={`flex flex-col items-center justify-center w-full h-40 px-4 transition bg-white dark:bg-slate-900 border-2 ${isDragging ? 'border-indigo-400' : 'border-slate-300 dark:border-slate-700'} border-dashed rounded-md cursor-pointer hover:border-indigo-500`}>
+                        <UploadCloudIcon className={`w-10 h-10 ${isDragging ? 'text-indigo-400' : 'text-slate-400'}`} />
+                        <p className="font-medium mt-2">Click to upload or drag & drop a video</p>
+                        <input type="file" className="hidden" accept="video/*" onChange={handleFileChange} />
+                    </label>
+                )}
+                <textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Additional Notes for AI (Optional)" className="w-full h-24 p-4 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                <div className="text-center pt-2"><button onClick={handleAnalyzeVideo} disabled={!videoFile || !title.trim()} className="bg-indigo-600 text-white font-bold py-3 px-6 rounded-lg disabled:bg-slate-400 dark:disabled:bg-slate-500 disabled:cursor-not-allowed hover:bg-indigo-700 transition-colors transform hover:scale-105 flex items-center justify-center gap-2"><SparklesIcon className="h-6 w-6" />Analyze & Transcribe</button></div>
+            </div>
+        </div>
+    );
+
+    const renderVideoReview = () => (
+        <div className="animate-fade-in-up">
+            <h2 className="text-2xl font-bold text-center text-indigo-500 dark:text-indigo-400 mb-6">2. Review AI Transcript</h2>
+            {analysisResult && videoUrl && (
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                    <div className="lg:col-span-1 lg:sticky top-6 space-y-4"><VideoPlayer ref={videoRef} video_url={videoUrl} onTimeUpdate={setCurrentTime} /></div>
                     <div className="lg:col-span-2 bg-slate-100 dark:bg-slate-800 p-4 rounded-lg h-[70vh]">
                         <TranscriptEditor transcript={editedTranscript} currentTime={currentTime} onSeek={handleSeek} onTranscriptChange={handleTranscriptChange} />
                     </div>
                 </div>
-            }
+            )}
             <div className="mt-8 flex justify-center gap-4">
-                <button onClick={resetForm} className="bg-slate-500 dark:bg-slate-600 hover:bg-slate-600 dark:hover:bg-slate-700 text-white font-bold py-3 px-6 rounded-lg transition-colors">Start Over</button>
-                <button onClick={handleGenerateModule} className="bg-indigo-600 text-white font-bold py-3 px-8 rounded-lg hover:bg-indigo-700 transition-colors transform hover:scale-105 flex items-center justify-center gap-2">
-                    <SparklesIcon className="h-6 w-6" />
-                    Create Steps from Transcript
-                </button>
+                <button onClick={() => setFlowStep('initial')} className="bg-slate-200 dark:bg-slate-600 text-slate-800 dark:text-white font-bold py-3 px-6 rounded-lg hover:bg-slate-300 dark:hover:bg-slate-700 transition-colors">Back</button>
+                <button onClick={handleGenerateModule} className="bg-indigo-600 text-white font-bold py-3 px-6 rounded-lg disabled:bg-slate-400 dark:disabled:bg-slate-500 disabled:cursor-not-allowed hover:bg-indigo-700 transition-colors transform hover:scale-105 flex items-center justify-center gap-2"><SparklesIcon className="h-6 w-6" />Create Steps from Transcript</button>
             </div>
         </div>
     );
 
-    const renderFinalStep = () => (
+    const renderFinal = () => (
         <div className="animate-fade-in-up">
+            <h2 className="text-2xl font-bold text-center text-indigo-500 dark:text-indigo-400 mb-6">3. Finalize Your Module</h2>
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
                 <div className="lg:sticky top-6">
-                    <h2 className="text-2xl font-bold text-indigo-500 dark:text-indigo-400 mb-4">📹 Video Preview</h2>
                     {videoUrl && <VideoPlayer ref={videoRef} video_url={videoUrl} onTimeUpdate={setCurrentTime} />}
                 </div>
-                <div>
-                    <h2 className="text-2xl font-bold text-indigo-500 dark:text-indigo-400 mb-4">🧩 3. Edit Your Module</h2>
-                    {generatedModule && <ModuleEditor module={generatedModule} onModuleChange={setGeneratedModule} isAdmin={true} currentTime={currentTime} onSeek={handleSeek} />}
-                </div>
+                <div>{generatedModule && <ModuleEditor module={generatedModule} onModuleChange={setGeneratedModule} isAdmin={true} currentTime={currentTime} onSeek={handleSeek} />}</div>
             </div>
             <div className="mt-8 flex justify-center gap-4">
-                <button onClick={resetForm} className="bg-slate-500 dark:bg-slate-600 hover:bg-slate-600 dark:hover:bg-slate-700 text-white font-bold py-3 px-6 rounded-lg transition-colors" disabled={isSaving}>Start Over</button>
-                <button onClick={handleSave} className="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-6 rounded-lg transition-colors disabled:bg-slate-500" disabled={isSaving}>{isSaving ? 'Saving...' : 'Save Module'}</button>
+                <button onClick={handleBackToSelection} className="bg-slate-200 dark:bg-slate-600 text-slate-800 dark:text-white font-bold py-3 px-6 rounded-lg hover:bg-slate-300 dark:hover:bg-slate-700 transition-colors" disabled={isSaving}>Start Over</button>
+                <button onClick={handleSave} className="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-6 rounded-lg disabled:bg-slate-500" disabled={isSaving}>{isSaving ? 'Saving...' : 'Save Module'}</button>
             </div>
         </div>
     );
 
-    const renderAiFlow = () => {
-        if (flowStep === 'analyzing' || flowStep === 'generating') {
-            return (
-                <div className="text-center p-8 animate-fade-in-up">
-                    <LightbulbIcon className="h-12 w-12 mx-auto text-indigo-500 dark:text-indigo-400 animate-pulse" />
-                    <p className="mt-4 text-lg text-slate-600 dark:text-slate-300">
-                        {flowStep === 'analyzing' ? 'AI is analyzing your video...' : 'AI is building your training module...'}
-                    </p>
-                </div>
-            )
-        }
-
+    const renderVideoFlow = () => {
         switch (flowStep) {
-            case 'initial': return renderInitialStep();
-            case 'review': return renderReviewStep();
-            case 'final': return renderFinalStep();
-            default: return null;
+            case 'initial': return renderVideoInitial();
+            case 'review': return renderVideoReview();
+            default: return null; // 'final' is handled by the main renderContent
         }
     };
 
-    const renderUploadExistingModule = () => (
+    const renderModelFlow = () => (
+        <div className="bg-slate-100 dark:bg-slate-800 p-8 rounded-2xl shadow-xl animate-fade-in-up max-w-2xl mx-auto">
+            <h2 className="text-2xl font-bold text-indigo-500 dark:text-indigo-400 mb-2 text-center">Create from Device Model</h2>
+            <p className="text-slate-600 dark:text-slate-300 mb-6 text-center">The AI will search the web for your device and generate steps.</p>
+            <div className="space-y-4">
+                <input type="text" value={brand} onChange={e => setBrand(e.target.value)} placeholder="Brand (e.g., LG)" className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                <input type="text" value={model} onChange={e => setModel(e.target.value)} placeholder="Model (e.g., MR20GA)" className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+            </div>
+            <div className="mt-8 text-center"><button onClick={handleGenerateFromModel} disabled={!brand.trim() || !model.trim()} className="bg-indigo-600 text-white font-bold py-3 px-6 rounded-lg disabled:bg-slate-400 dark:disabled:bg-slate-500 disabled:cursor-not-allowed hover:bg-indigo-700 transition-colors transform hover:scale-105 flex items-center justify-center gap-2"><SparklesIcon className="h-6 w-6" />Generate Steps</button></div>
+        </div>
+    );
+
+    const renderManualFlow = () => (
+        <div className="bg-slate-100 dark:bg-slate-800 p-8 rounded-2xl shadow-xl animate-fade-in-up max-w-2xl mx-auto">
+            <h2 className="text-2xl font-bold text-indigo-500 dark:text-indigo-400 mb-2 text-center">Create from Manual</h2>
+            <p className="text-slate-600 dark:text-slate-300 mb-6 text-center">Upload a PDF, DOCX, or TXT file. The AI will learn its contents to provide expert guidance.</p>
+            {manualFile ? (
+                <div className="bg-slate-200 dark:bg-slate-900/50 p-3 rounded-lg flex items-center justify-between">
+                    <div className="flex items-center gap-3"><FileTextIcon className="h-6 w-6 text-indigo-500" /><span className="text-sm font-medium">{manualFile.name}</span></div>
+                    <button onClick={() => setManualFile(null)} className="p-1 text-slate-500"><XIcon className="h-5 w-5" /></button>
+                </div>
+            ) : (
+                <label onDrop={handleDrop} {...handleDragEvents} className={`flex flex-col items-center justify-center w-full h-40 px-4 transition bg-white dark:bg-slate-900 border-2 ${isDragging ? 'border-indigo-400' : 'border-slate-300 dark:border-slate-700'} border-dashed rounded-md cursor-pointer hover:border-indigo-500`}>
+                    <UploadCloudIcon className={`w-10 h-10 ${isDragging ? 'text-indigo-400' : 'text-slate-400'}`} />
+                    <p className="font-medium mt-2">Click to upload or drag & drop</p><p className="text-xs text-slate-500">PDF, DOCX, or TXT</p>
+                    <input type="file" className="hidden" accept=".pdf,.doc,.docx,.txt" onChange={handleFileChange} />
+                </label>
+            )}
+            <div className="mt-8 text-center"><button onClick={handleManualUpload} disabled={!manualFile} className="bg-indigo-600 text-white font-bold py-3 px-6 rounded-lg disabled:bg-slate-400 dark:disabled:bg-slate-500 disabled:cursor-not-allowed hover:bg-indigo-700 transition-colors transform hover:scale-105 flex items-center justify-center gap-2"><UploadCloudIcon className="h-6 w-6" />Upload for Processing</button></div>
+        </div>
+    );
+
+    const renderJsonUploadFlow = () => (
         <div className="bg-slate-100 dark:bg-slate-800 p-8 rounded-2xl shadow-xl animate-fade-in-up max-w-2xl mx-auto">
             <h2 className="text-2xl font-bold text-indigo-500 dark:text-indigo-400 mb-2 text-center">Upload Existing Module</h2>
             <p className="text-slate-600 dark:text-slate-300 mb-6 text-center">Upload a previously exported `.json` module file to add it to the platform.</p>
-            <label onDrop={(e) => handleDrop(e, true)} onDragOver={handleDragOver} onDragEnter={handleDragEnter} onDragLeave={handleDragLeave} className={`flex flex-col items-center justify-center w-full h-48 px-4 transition bg-white dark:bg-slate-900 border-2 ${isDragging ? 'border-indigo-400' : 'border-slate-300 dark:border-slate-700'} border-dashed rounded-md appearance-none cursor-pointer hover:border-indigo-500 focus:outline-none`}>
-                <UploadCloudIcon className={`w-12 h-12 ${isDragging ? 'text-indigo-400' : 'text-slate-400 dark:text-slate-500'}`} />
-                <div className="mt-2 text-center"><p className="font-medium text-slate-600 dark:text-slate-300">Drop a .json file here, or click to upload</p></div>
-                <input type="file" name="json_upload" className="hidden" accept="application/json" onChange={(e) => handleFileChange(e, true)} />
+            <label onDrop={handleDrop} {...handleDragEvents} className={`flex flex-col items-center justify-center w-full h-48 px-4 transition bg-white dark:bg-slate-900 border-2 ${isDragging ? 'border-indigo-400' : 'border-slate-300 dark:border-slate-700'} border-dashed rounded-md cursor-pointer hover:border-indigo-500`}>
+                <UploadCloudIcon className={`w-12 h-12 ${isDragging ? 'text-indigo-400' : 'text-slate-400'}`} />
+                <p className="font-medium mt-2">Drop a .json file here, or click to upload</p>
+                <input type="file" className="hidden" accept="application/json" onChange={handleFileChange} />
             </label>
         </div>
     );
 
+    const renderContent = () => {
+        if (flowStep === 'generating' || flowStep === 'analyzing') {
+            return <div className="text-center p-8"><SparklesIcon className="h-12 w-12 mx-auto text-indigo-500 animate-pulse" /><p className="mt-4 text-lg">AI is working its magic...</p></div>;
+        }
+        if (flowStep === 'final') return renderFinal();
+
+        switch (creationMode) {
+            case 'selection': return renderSelection();
+            case 'video': return renderVideoFlow();
+            case 'model': return renderModelFlow();
+            case 'manual': return renderManualFlow();
+            case 'jsonUpload': return renderJsonUploadFlow();
+            default: return renderSelection();
+        }
+    };
+
     return (
         <div className="p-6">
-            <div className="flex justify-between items-center mb-6">
-                <h1 className="text-3xl font-bold text-slate-900 dark:text-white text-center">Create Module</h1>
-                <span className="w-40 text-right">
-                    {activeTab === 'ai' && flowStep !== 'initial' && <button onClick={resetForm} className="text-sm text-slate-500 hover:text-red-500">Start Over</button>}
-                </span>
-            </div>
+            <header className="flex justify-between items-center mb-6">
+                <div className="w-40">
+                    {creationMode !== 'selection' && <button onClick={handleBackToSelection} className="flex items-center gap-2 text-sm text-slate-500 hover:text-indigo-500"><ArrowLeftIcon className="h-4 w-4" /> Back to selection</button>}
+                </div>
+                <h1 className="text-3xl font-bold text-slate-900 dark:text-white text-center">Create Custom Module</h1>
+                <span className="w-40" />
+            </header>
+            {renderContent()}
 
-            <div className="mb-6 flex justify-center border-b border-slate-300 dark:border-slate-700">
-                <button onClick={() => setActiveTab('ai')} className={`px-4 py-2 text-sm font-semibold flex items-center gap-2 ${activeTab === 'ai' ? 'border-b-2 border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>
-                    <SparklesIcon className="h-5 w-5" /> Create with AI
-                </button>
-                <button onClick={() => setActiveTab('upload')} className={`px-4 py-2 text-sm font-semibold flex items-center gap-2 ${activeTab === 'upload' ? 'border-b-2 border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>
-                    <FileTextIcon className="h-5 w-5" /> Upload Existing Module
-                </button>
-            </div>
-
-            {activeTab === 'ai' ? renderAiFlow() : renderUploadExistingModule()}
+            {showPrompt && (
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={cancelPrompt}>
+                    <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-xl p-8 max-w-md w-full text-center animate-fade-in-up" onClick={(e) => e.stopPropagation()}>
+                        <SparklesIcon className="h-12 w-12 mx-auto text-indigo-500 mb-4" />
+                        <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Save as a Routine?</h2>
+                        <p className="text-slate-600 dark:text-slate-300 mt-2 mb-6">Would you like to save this process as a reusable routine for quick access later? (e.g., &quot;Watch ESPN&quot;)</p>
+                        <div className="flex justify-center gap-4">
+                            <button onClick={cancelPrompt} className="bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-white font-bold py-2 px-6 rounded-lg hover:bg-slate-300 dark:hover:bg-slate-600">
+                                Maybe Later
+                            </button>
+                            <button onClick={confirmPrompt} className="bg-indigo-600 text-white font-bold py-2 px-6 rounded-lg hover:bg-indigo-700">
+                                Save as Routine
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

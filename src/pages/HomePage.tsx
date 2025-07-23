@@ -1,103 +1,74 @@
-import React, { useState, useCallback, useMemo, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { getAvailableModules, deleteModule } from '@/services/moduleService';
-import { BookOpenIcon, LogOutIcon, UserIcon, BarChartIcon, TrashIcon, SunIcon, MoonIcon, SearchIcon, XIcon, VideoIcon, DownloadIcon, SparklesIcon, ClockIcon } from '@/components/Icons';
-import type { AppModuleWithStats } from '@/types';
 import { useAuth } from '@/hooks/useAuth';
-import { useToast } from '@/hooks/useToast';
 import { useTheme } from '@/hooks/useTheme';
-import { ModuleCardSkeleton } from '@/components/ModuleCardSkeleton';
+import { LogOutIcon, UserIcon, BarChartIcon, SunIcon, MoonIcon, SearchIcon, XIcon, LightbulbIcon } from '@/components/Icons';
+import * as Icons from '@/components/Icons';
+import { TemplateCard } from '@/components/TemplateCard';
+
+interface Template {
+    id: string;
+    title: string;
+    description: string;
+    icon: keyof typeof Icons;
+}
+
+interface TemplateCategory {
+    name: string;
+    icon: keyof typeof Icons;
+    templates: Template[];
+}
 
 const HomePage: React.FC = () => {
     const navigate = useNavigate();
-    const queryClient = useQueryClient();
-    const { addToast } = useToast();
     const { isAuthenticated, user, signOut } = useAuth();
     const { theme, toggleTheme } = useTheme();
     const [searchTerm, setSearchTerm] = useState('');
-
-    const { data: availableModules, isLoading: isLoadingModules, error: modulesError } = useQuery<AppModuleWithStats[], Error>({
-        queryKey: ['modules'],
-        queryFn: getAvailableModules
-    });
-
-    const filteredModules = useMemo(() => {
-        if (!availableModules) return [];
-        const lowercasedTerm = searchTerm.toLowerCase();
-        return availableModules.filter(module =>
-            module.title?.toLowerCase().includes(lowercasedTerm)
-        );
-    }, [availableModules, searchTerm]);
+    const [templateData, setTemplateData] = useState<TemplateCategory[]>([]);
+    const [isLoading, setIsLoading] = useState(true);
 
     useEffect(() => {
-        const handleKeyDown = (e: KeyboardEvent) => {
-            if (e.key === '/' && (e.target as HTMLElement)?.tagName !== 'INPUT' && (e.target as HTMLElement)?.tagName !== 'TEXTAREA') {
-                e.preventDefault();
-                document.getElementById('module-search')?.focus();
+        const fetchTemplates = async () => {
+            try {
+                const response = await fetch('/templates/index.json');
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                const data = await response.json();
+                setTemplateData(data.categories);
+            } catch (error) {
+                console.error("Failed to fetch templates:", error);
+            } finally {
+                setIsLoading(false);
             }
         };
-
-        window.addEventListener('keydown', handleKeyDown);
-        return () => window.removeEventListener('keydown', handleKeyDown);
+        fetchTemplates();
     }, []);
 
-    const handleDeleteModule = useCallback(async (e: React.MouseEvent, slug: string | null) => {
-        e.preventDefault();
-        e.stopPropagation();
-        if (!slug) return;
+    const filteredCategories = useMemo(() => {
+        if (!templateData) return [];
+        const lowercasedTerm = searchTerm.toLowerCase();
+        if (!lowercasedTerm) return templateData;
 
-        const confirmation = window.confirm(
-            'Are you sure you want to delete this module? This will also remove ALL associated training progress and chat histories from the database. This action cannot be undone.'
-        );
-
-        if (confirmation) {
-            try {
-                await deleteModule(slug);
-                await queryClient.invalidateQueries({ queryKey: ['modules'] });
-                addToast('success', 'Module Deleted', `The module was successfully removed.`);
-            } catch (err) {
-                console.error("Failed to delete module:", err);
-                const errorMessage = err instanceof Error ? err.message : 'An error occurred during deletion.';
-                addToast('error', 'Deletion Failed', errorMessage);
-            }
-        }
-    }, [queryClient, addToast]);
-
-    const handleDownloadModule = useCallback((e: React.MouseEvent, module: AppModuleWithStats) => {
-        e.preventDefault();
-        e.stopPropagation();
-
-        const cleanModule = {
-            slug: module.slug,
-            title: module.title,
-            steps: module.steps,
-            video_url: module.video_url,
-            transcript: module.transcript,
-            metadata: module.metadata,
-        };
-
-        const jsonString = `data:text/json;charset=utf-8,${encodeURIComponent(
-            JSON.stringify(cleanModule, null, 2)
-        )}`;
-        const link = document.createElement("a");
-        link.href = jsonString;
-        link.download = `${module.slug}.json`;
-        link.click();
-
-        addToast('success', 'Download Started', 'Module JSON file is being downloaded.');
-    }, [addToast]);
-
+        return templateData
+            .map(category => ({
+                ...category,
+                templates: category.templates.filter(template =>
+                    template.title.toLowerCase().includes(lowercasedTerm) ||
+                    template.description.toLowerCase().includes(lowercasedTerm)
+                ),
+            }))
+            .filter(category => category.templates.length > 0);
+    }, [templateData, searchTerm]);
 
     return (
-        <div className="w-full max-w-screen-md mx-auto px-4 py-12 text-center">
-            <header className="mb-12 relative">
+        <div className="w-full max-w-screen-md mx-auto px-4 py-12">
+            <header className="mb-12 relative text-center">
                 <div className="absolute top-0 right-0 flex items-center gap-4">
                     <button
                         onClick={toggleTheme}
                         className="p-2 rounded-full bg-slate-100 dark:bg-slate-700/50 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700"
                         aria-label="Toggle theme"
-                        title="Toggle theme"
                     >
                         {theme === 'dark' ? <SunIcon className="h-5 w-5" /> : <MoonIcon className="h-5 w-5" />}
                     </button>
@@ -105,7 +76,7 @@ const HomePage: React.FC = () => {
                         <>
                             <Link to="/dashboard" className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold py-2 px-4 rounded-full transition-colors">
                                 <BarChartIcon className="h-5 w-5" />
-                                <span>Go to Dashboard</span>
+                                <span>Dashboard</span>
                             </Link>
                             <button
                                 onClick={signOut}
@@ -113,7 +84,6 @@ const HomePage: React.FC = () => {
                                 title="Logout"
                             >
                                 <LogOutIcon className="h-5 w-5" />
-                                <span className="hidden md:inline">Logout</span>
                             </button>
                         </>
                     ) : (
@@ -127,20 +97,17 @@ const HomePage: React.FC = () => {
                     )}
                 </div>
                 <h1 className="text-5xl font-bold text-slate-900 dark:text-white">Adapt Training Platform</h1>
-                <p className="mt-4 text-lg text-slate-500 dark:text-slate-400">Your interactive AI-powered training assistant.</p>
+                <p className="mt-4 text-lg text-slate-500 dark:text-slate-400">Create interactive training with AI in seconds.</p>
             </header>
 
             <div className="mt-12">
-                <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-6 text-center">Available Training Modules</h2>
+                <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-6 text-center">Start with a Template</h2>
                 <div className="mb-6 max-w-md mx-auto">
                     <div className="relative">
-                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                            <SearchIcon className="h-5 w-5 text-slate-400" />
-                        </div>
+                        <SearchIcon className="absolute inset-y-0 left-0 pl-3 h-full w-5 text-slate-400" />
                         <input
                             type="text"
-                            id="module-search"
-                            placeholder="Search for a module (or press /)"
+                            placeholder="Search templates..."
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
                             className="w-full pl-10 pr-4 py-2 border border-slate-300 dark:border-slate-700 rounded-full bg-slate-100 dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
@@ -153,86 +120,43 @@ const HomePage: React.FC = () => {
                     </div>
                 </div>
 
-                {isLoadingModules ? (
-                    <div className="mt-6 flex justify-center">
-                        <div className="w-full max-w-md space-y-6">
-                            <ModuleCardSkeleton />
-                            <ModuleCardSkeleton />
-                        </div>
-                    </div>
-                ) : modulesError ? (
-                    <div className="text-center text-red-500 dark:text-red-400 bg-red-100 dark:bg-red-900/50 p-4 rounded-lg">
-                        Error fetching modules: {modulesError.message}
-                    </div>
-                ) : filteredModules.length > 0 ? (
-                    <div className="mt-6 flex justify-center">
-                        <div className="w-full max-w-md space-y-6">
-                            {filteredModules.map(module => {
-                                if (!module.slug) return null; // Prevent rendering modules without a slug
-
-                                return (
-                                    <div key={module.slug} className="w-full text-left p-6 bg-white dark:bg-slate-800 rounded-xl hover:ring-2 hover:ring-indigo-500 transition-all duration-300 transform hover:-translate-y-1 shadow-md dark:shadow-lg hover:shadow-xl dark:hover:shadow-indigo-500/20 relative group">
-                                        <div className="flex justify-between items-start mb-4">
-                                            <div className="flex items-center gap-4">
-                                                <div className="bg-indigo-100 dark:bg-indigo-600/30 p-3 rounded-lg">
-                                                    <BookOpenIcon className="h-6 w-6 text-indigo-600 dark:text-indigo-300" />
-                                                </div>
-                                                <div>
-                                                    <h3 className="text-xl font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
-                                                        {module.title}
-                                                        {module.is_ai_generated && <span title="AI Generated"><SparklesIcon className="h-5 w-5 text-yellow-500" /></span>}
-                                                    </h3>
-                                                    <p className="text-slate-500 dark:text-slate-400">{module.steps.length} steps</p>
-                                                </div>
-                                            </div>
-                                            <div className="flex-shrink-0" title={module.last_used_at ? `Last used on ${new Date(module.last_used_at).toLocaleDateString()}` : undefined}>
-                                                {(module.session_count ?? 0) > 0 ? (
-                                                    <span className="flex items-center gap-1 text-xs font-semibold text-green-700 dark:text-green-300 bg-green-100 dark:bg-green-800/50 px-2 py-1 rounded-full">
-                                                        <ClockIcon className="h-4 w-4" /> In Use
-                                                    </span>
-                                                ) : (
-                                                    <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-700/50 px-2 py-1 rounded-full">Not Started</span>
-                                                )}
-                                            </div>
-                                        </div>
-                                        <div className="flex gap-2">
-                                            <Link to={`/modules/${module.slug}`} className="flex-1 text-center bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-800 dark:text-white font-semibold py-2 px-4 rounded-lg transition-colors">
-                                                Start Training
-                                            </Link>
-                                            <Link to={`/modules/${module.slug}/live`} className="flex-1 text-center bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 px-4 rounded-lg transition-colors flex items-center justify-center gap-2">
-                                                <VideoIcon className="h-5 w-5" />
-                                                Live Coach
-                                            </Link>
-                                        </div>
-                                        {isAuthenticated && (
-                                            <div className="absolute top-4 right-4 flex flex-col gap-2 items-end opacity-0 group-hover:opacity-100 transition-opacity">
-                                                <button
-                                                    onClick={(e) => handleDownloadModule(e, module)}
-                                                    className="p-2 bg-slate-200/50 dark:bg-slate-700/50 rounded-full text-slate-500 dark:text-slate-400 hover:bg-blue-500/80 hover:text-white transition-all"
-                                                    aria-label="Download module JSON"
-                                                    title="Download module JSON"
-                                                >
-                                                    <DownloadIcon className="h-5 w-5" />
-                                                </button>
-                                                <button
-                                                    onClick={(e) => handleDeleteModule(e, module.slug)}
-                                                    className="p-2 bg-slate-200/50 dark:bg-slate-700/50 rounded-full text-slate-500 dark:text-slate-400 hover:bg-red-500/80 hover:text-white transition-all"
-                                                    aria-label="Delete module"
-                                                    title="Delete module"
-                                                >
-                                                    <TrashIcon className="h-5 w-5" />
-                                                </button>
-                                            </div>
-                                        )}
-                                    </div>
-                                );
-                            })}
-                        </div>
+                {isLoading ? (
+                    <div className="text-center py-10">
+                        <p className="text-slate-500 dark:text-slate-400">Loading templates...</p>
                     </div>
                 ) : (
-                    <div className="text-center bg-slate-100 dark:bg-slate-800 p-8 rounded-lg">
-                        <p className="text-slate-500 dark:text-slate-400">{searchTerm ? `No modules found for "${searchTerm}"` : "No training modules found in the database."}</p>
-                        {!searchTerm && <p className="text-slate-400 dark:text-slate-500 text-sm mt-2">Use the "Create with AI" tool to add one.</p>}
+                    <div className="space-y-8">
+                        {filteredCategories.length > 0 ? (
+                            filteredCategories.map(category => (
+                                <div key={category.name}>
+                                    <h3 className="text-xl font-bold text-slate-800 dark:text-slate-200 mb-4">{category.name}</h3>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                        {category.templates.map(template => (
+                                            <TemplateCard key={template.id} template={template} />
+                                        ))}
+                                    </div>
+                                </div>
+                            ))
+                        ) : searchTerm ? (
+                            <div className="text-center py-10 bg-slate-100 dark:bg-slate-800/50 rounded-lg">
+                                <p className="text-slate-500 dark:text-slate-400">No templates found matching &quot;{searchTerm}&quot;.</p>
+                            </div>
+                        ) : (
+                            <div className="text-center py-10 bg-slate-100 dark:bg-slate-800/50 rounded-lg">
+                                <p className="text-slate-500 dark:text-slate-400">No templates are available at the moment.</p>
+                            </div>
+                        )}
+
+                        <div className="text-center pt-8 mt-8 border-t border-slate-200 dark:border-slate-700">
+                            <h3 className="text-xl font-bold text-slate-800 dark:text-slate-200 mb-2">
+                                {searchTerm ? "Didn't find what you need?" : "Or, start from scratch"}
+                            </h3>
+                            <p className="text-slate-500 dark:text-slate-400 mb-4">Create a custom training module from a video, device model, or manual.</p>
+                            <Link to="/create" className="inline-flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white font-semibold py-2 px-4 rounded-lg transition-colors">
+                                <LightbulbIcon className="h-5 w-5" />
+                                <span>Create Custom Module</span>
+                            </Link>
+                        </div>
                     </div>
                 )}
             </div>
