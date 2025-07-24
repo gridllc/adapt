@@ -1,7 +1,3 @@
-
-
-
-
 import { onCall, HttpsError, CallableRequest } from "firebase-functions/v2/https";
 import { setGlobalOptions } from "firebase-functions/v2";
 import * as logger from "firebase-functions/logger";
@@ -665,12 +661,12 @@ export const getSignedRoutineVideoUploadUrl = onCall(async (req) => {
 });
 
 // --- Text-to-Speech Service ---
-export const textToSpeech = onCall({ secrets: ["TTS_API_KEY"] }, async (req) => {
+export const generateSpeech = onCall({ secrets: ["API_KEY"] }, async (req) => {
     const { text, voiceId } = req.data;
-    const GOOGLE_API_KEY = process.env.TTS_API_KEY;
+    const GOOGLE_API_KEY = process.env.API_KEY;
 
     if (!GOOGLE_API_KEY) {
-        logger.error("Google Cloud TTS API key is not configured as a secret named TTS_API_KEY.");
+        logger.error("Google Cloud TTS API key is not configured. Ensure the function is deployed with the 'API_KEY' secret.");
         throw new HttpsError("internal", "TTS service is not configured.");
     }
     if (!text || !voiceId) {
