@@ -1,13 +1,13 @@
 import type { CheckpointResponse } from '@/types';
 import { functions } from '@/firebase';
-import { httpsCallable } from 'firebase/functions';
-import type { Functions } from 'firebase/functions';
+import type firebase from 'firebase/compat/app';
+import 'firebase/compat/functions';
 
 type CheckpointFailureStat = { step_index: number; checkpoint_text: string; count: number };
 
-const logCheckpointResponseFn = httpsCallable<Omit<CheckpointResponse, 'id' | 'created_at'>>(functions as Functions, 'logCheckpointResponse');
-const getCheckpointResponsesForModuleFn = httpsCallable<{ moduleId: string }, CheckpointResponse[]>(functions as Functions, 'getCheckpointResponsesForModule');
-const getCheckpointFailureStatsFn = httpsCallable<{ moduleId: string }, CheckpointFailureStat[]>(functions as Functions, 'getCheckpointFailureStats');
+const logCheckpointResponseFn = functions.httpsCallable('logCheckpointResponse');
+const getCheckpointResponsesForModuleFn = functions.httpsCallable('getCheckpointResponsesForModule');
+const getCheckpointFailureStatsFn = functions.httpsCallable('getCheckpointFailureStats');
 
 export async function logCheckpointResponse(response: Omit<CheckpointResponse, 'id' | 'created_at'>): Promise<void> {
     try {
@@ -19,8 +19,8 @@ export async function logCheckpointResponse(response: Omit<CheckpointResponse, '
 
 export async function getCheckpointResponsesForModule(moduleId: string): Promise<CheckpointResponse[]> {
     try {
-        const result = await getCheckpointResponsesForModuleFn({ moduleId });
-        return result.data;
+        const result: firebase.functions.HttpsCallableResult = await getCheckpointResponsesForModuleFn({ moduleId });
+        return result.data as CheckpointResponse[];
     } catch (error) {
         console.error("Error fetching checkpoint responses:", error);
         throw error;
@@ -29,8 +29,8 @@ export async function getCheckpointResponsesForModule(moduleId: string): Promise
 
 export async function getCheckpointFailureStats(moduleId: string): Promise<CheckpointFailureStat[]> {
     try {
-        const result = await getCheckpointFailureStatsFn({ moduleId });
-        return result.data;
+        const result: firebase.functions.HttpsCallableResult = await getCheckpointFailureStatsFn({ moduleId });
+        return result.data as CheckpointFailureStat[];
     } catch (error) {
         console.error("Error fetching checkpoint failure stats:", error);
         return [];

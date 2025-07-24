@@ -1,5 +1,6 @@
 import { functions } from '@/firebase';
-import type { HttpsCallableResult } from 'firebase/functions';
+import type firebase from 'firebase/compat/app';
+import 'firebase/compat/functions';
 import type { FlaggedQuestion, FlaggedQuestionForInsert } from '@/types';
 
 // --- Callable Firebase Functions ---
@@ -20,7 +21,7 @@ export async function flagQuestion(flagData: FlaggedQuestionForInsert): Promise<
 
 export async function getFlaggedQuestions(moduleId: string): Promise<FlaggedQuestion[]> {
     try {
-        const result: HttpsCallableResult = await getFlaggedQuestionsFn({ moduleId });
+        const result: firebase.functions.HttpsCallableResult = await getFlaggedQuestionsFn({ moduleId });
         return result.data as FlaggedQuestion[];
     } catch (error) {
         console.error("[Firebase] Error fetching flagged questions:", error);

@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
-import { httpsCallable } from 'firebase/functions';
 import { functions } from '@/firebase';
-import type { Functions } from 'firebase/functions';
+import type firebase from 'firebase/compat/app';
+import 'firebase/compat/functions';
 
 interface UseSafeVideoUrlResult {
   videoUrl: string | null;
@@ -11,7 +11,7 @@ interface UseSafeVideoUrlResult {
 }
 
 // This function calls a Firebase Function to get a secure download URL.
-const getSignedDownloadUrlFn = httpsCallable<{ filePath: string }, { downloadUrl: string }>(functions as Functions, 'getSignedDownloadUrl');
+const getSignedDownloadUrlFn = functions.httpsCallable('getSignedDownloadUrl');
 
 
 /**
@@ -38,8 +38,8 @@ export function useSafeVideoUrl(path: string | null): UseSafeVideoUrlResult {
 
     try {
       // Create a temporary signed download URL via our backend function
-      const result = await getSignedDownloadUrlFn({ filePath: path });
-      const data = result.data;
+      const result: firebase.functions.HttpsCallableResult = await getSignedDownloadUrlFn({ filePath: path });
+      const data = result.data as { downloadUrl: string };
 
       if (data?.downloadUrl) {
         setVideoUrl(data.downloadUrl);

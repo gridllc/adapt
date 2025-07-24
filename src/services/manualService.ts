@@ -1,8 +1,8 @@
 import { functions } from '@/firebase';
-import { httpsCallable } from 'firebase/functions';
-import type { Functions } from 'firebase/functions';
+import type firebase from 'firebase/compat/app';
+import 'firebase/compat/functions';
 
-const getSignedManualUploadUrlFn = httpsCallable<{ fileName: string, contentType: string }, { uploadUrl: string, filePath: string }>(functions as Functions, 'getSignedManualUploadUrl');
+const getSignedManualUploadUrlFn = functions.httpsCallable('getSignedManualUploadUrl');
 
 /**
  * Uploads a user-provided manual to a secure cloud storage location for later processing.
@@ -13,12 +13,12 @@ const getSignedManualUploadUrlFn = httpsCallable<{ fileName: string, contentType
 export const uploadManualForProcessing = async (file: File): Promise<string> => {
     try {
         // 1. Get a secure, one-time upload URL from our backend function.
-        const result = await getSignedManualUploadUrlFn({
+        const result: firebase.functions.HttpsCallableResult = await getSignedManualUploadUrlFn({
             fileName: file.name,
             contentType: file.type,
         });
 
-        const { uploadUrl, filePath } = result.data;
+        const { uploadUrl, filePath } = result.data as { uploadUrl: string, filePath: string };
 
         if (!uploadUrl || !filePath) {
             throw new Error("Backend did not return a valid upload URL.");

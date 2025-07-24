@@ -1,5 +1,6 @@
 import { functions } from '@/firebase';
-import type { HttpsCallableResult } from 'firebase/functions';
+import type firebase from 'firebase/compat/app';
+import 'firebase/compat/functions';
 import type { Routine } from '@/types';
 
 const getRoutinesForTemplateFn = functions.httpsCallable('getRoutinesForTemplate');
@@ -9,13 +10,13 @@ const getSignedRoutineVideoUploadUrlFn = functions.httpsCallable('getSignedRouti
 const getRoutineForIntentFn = functions.httpsCallable('getRoutineForIntent');
 
 export const getRoutinesForTemplate = async (templateId: string): Promise<Routine[]> => {
-    const result: HttpsCallableResult = await getRoutinesForTemplateFn({ templateId });
+    const result: firebase.functions.HttpsCallableResult = await getRoutinesForTemplateFn({ templateId });
     return result.data as Routine[];
 };
 
 export const getRoutineForIntent = async (templateId: string, intent: string): Promise<Routine | null> => {
     try {
-        const result: HttpsCallableResult = await getRoutineForIntentFn({ templateId, intent });
+        const result: firebase.functions.HttpsCallableResult = await getRoutineForIntentFn({ templateId, intent });
         return result.data as Routine | null;
     } catch (error) {
         console.warn(`Could not find routine for intent '${intent}' in template '${templateId}'.`, error);
@@ -28,7 +29,7 @@ export const saveRoutine = async (routine: Omit<Routine, 'id'> & { id?: string }
 
     if (videoFile) {
         try {
-            const result: HttpsCallableResult = await getSignedRoutineVideoUploadUrlFn({
+            const result: firebase.functions.HttpsCallableResult = await getSignedRoutineVideoUploadUrlFn({
                 routineId: routine.id || `${routine.templateId}-${routine.intent}`, // Create a unique path component
                 contentType: videoFile.type,
             });
@@ -57,7 +58,7 @@ export const saveRoutine = async (routine: Omit<Routine, 'id'> & { id?: string }
         videoUrl: videoUrlPath,
     };
 
-    const result: HttpsCallableResult = await saveRoutineFn({ routineData: routineToSave });
+    const result: firebase.functions.HttpsCallableResult = await saveRoutineFn({ routineData: routineToSave });
     return result.data as Routine;
 };
 
