@@ -98,7 +98,7 @@ const DashboardPage: React.FC = () => {
             addToast('info', 'Drafting Module...', 'The AI is creating a new remedial module.');
             const generatedData = await generateBranchModule(stepTitle, questions);
             const newModuleSlug = generatedData.title.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
-            const newSteps: ProcessStep[] = generatedData.steps.map((desc, index) => ({ title: `Step ${index + 1}`, description: desc, start: 0, end: 0, checkpoint: null, alternativeMethods: [] }));
+            const newSteps: ProcessStep[] = generatedData.steps.map((desc: string, index: number) => ({ title: `Step ${index + 1}`, description: desc, start: 0, end: 0, checkpoint: null, alternativeMethods: [] }));
             const newModule: ModuleForInsert = { slug: newModuleSlug, title: generatedData.title, steps: newSteps as unknown as Json, user_id: user.uid, metadata: { generated_by_ai: true, source_module: selectedModule?.slug, source_step: moduleHotspot?.stepIndex } as Json };
             await saveModule({ moduleData: newModule });
             return newModule;

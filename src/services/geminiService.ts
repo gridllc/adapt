@@ -1,722 +1,564 @@
-import { onCall, HttpsError, CallableRequest } from "firebase-functions/v2/https";
-import { setGlobalOptions } from "firebase-functions/v2";
-import * as logger from "firebase-functions/logger";
-import * as admin from "firebase-admin";
-import { GoogleGenAI, Type } from "@google/genai";
-import { getStorage } from "firebase-admin/storage";
-import { FieldValue } from "firebase-admin/firestore";
+import { GoogleGenAI, Chat, Content, Type, GenerateContentResponse, Part } from "@google/genai";
+import type { ProcessStep, ChatMessage, CheckpointEvaluation, TranscriptLine, GeneratedBranchModule, TemplateContext } from "@/types";
+import { getAliasPromptInjection } from "@/utils/aliasService";
+
+// --- Custom Return Types for Decoupling ---
+
+export interface GeneratedModuleData {
+    slug: string;
+    title: string;
+    steps: ProcessStep[];
+    transcript?: TranscriptLine[];
+}
+
+export interface TranscriptAnalysis {
+    transcript: TranscriptLine[];
+    confidence: number;
+    uncertainWords: string[];
+}
 
 
-// --- Initialization ---
-admin.initializeApp();
-const db = admin.firestore();
-const storage = getStorage();
+// --- AI Client Initialization ---
 
-// Set global options for all functions.
-setGlobalOptions({ timeoutSeconds: 60, memory: "1GiB" });
-// Note: v2 onCall functions have CORS enabled by default.
+let cachedClient: GoogleGenAI | null = null;
 
-const DAILY_TUTOR_LIMIT = 200;
-
-// --- Helper Functions ---
-
-/**
- * Lazily initializes and returns the GoogleGenAI client.
- * This function should be called *inside* each cloud function that needs the AI client
- * to ensure environment variables (like secrets) are available.
- */
 function getAiClient(): GoogleGenAI {
-    const apiKey = process.env.API_KEY;
+    if (cachedClient) {
+        return cachedClient;
+    }
+    // The VITE_API_KEY is set in the frontend hosting environment (e.g., Render, Vercel).
+    // Vite requires the `VITE_` prefix to expose it to the client-side code.
+    const apiKey = import.meta.env.VITE_API_KEY;
     if (!apiKey) {
-        // This error should not happen if the function is configured with secrets,
-        // but it's a good safeguard.
-        logger.error("FATAL: Gemini API key not found in environment variables. Ensure the function is deployed with secrets.");
-        throw new HttpsError("internal", "The server is missing a required AI configuration.");
+        throw new Error("AI features are unavailable. The VITE_API_KEY is missing from the frontend environment.");
     }
-    return new GoogleGenAI({ apiKey });
+    cachedClient = new GoogleGenAI({ apiKey });
+    return cachedClient;
 }
 
+// --- Schemas for AI Response Validation ---
 
-async function generateEmbedding(text: string): Promise<number[]> {
-    const ai = getAiClient();
-    try {
-        const result = await ai.models.embedContent({
-            model: "text-embedding-004",
-            contents: { parts: [{ text }] },
-        });
-        const embedding = result.embeddings?.[0]?.values;
-        if (!embedding) throw new Error("No embedding returned from Vertex AI");
-        return embedding;
-    } catch (e) {
-        logger.error("Embedding generation failed:", e);
-        const message = e instanceof Error ? e.message : "Failed to generate embedding.";
-        throw new HttpsError("internal", message);
-    }
-}
-
-const cosineSimilarity = (a: number[], b: number[]): number => {
-    if (!a || !b || a.length !== b.length) return 0;
-    const dotProduct = a.reduce((sum, ai, i) => sum + (ai * b[i]), 0);
-    const magA = Math.sqrt(a.reduce((sum, ai) => sum + (ai * ai), 0));
-    const magB = Math.sqrt(b.reduce((sum, bi) => sum + (bi * bi), 0));
-    if (magA === 0 || magB === 0) return 0;
-    return dotProduct / (magA * magB);
-};
-
-
-// --- Module Data Functions ---
-
-export const getModule = onCall(async (req) => {
-    const { moduleId } = req.data;
-    if (!moduleId) throw new HttpsError("invalid-argument", "A module ID is required.");
-    const doc = await db.collection("modules").doc(moduleId).get();
-    if (!doc.exists) throw new HttpsError("not-found", `Module not found.`);
-    return doc.data();
-});
-
-export const getAvailableModules = onCall(async () => {
-    const modulesSnap = await db.collection("modules").get();
-    const sessionsSnap = await db.collection("sessions").get();
-
-    const sessionData = new Map<string, { count: number, lastUsed?: string }>();
-    sessionsSnap.forEach(doc => {
-        const data = doc.data();
-        const existing = sessionData.get(data.module_id) ?? { count: 0 };
-        existing.count++;
-        if (!existing.lastUsed || data.updated_at > existing.lastUsed) {
-            existing.lastUsed = data.updated_at.toDate().toISOString();
-        }
-        sessionData.set(data.module_id, existing);
-    });
-
-    return modulesSnap.docs.map(doc => {
-        const moduleStats = sessionData.get(doc.id);
-        const docData = doc.data();
-        return {
-            ...docData,
-            slug: doc.id,
-            is_ai_generated: docData.metadata?.is_ai_generated ?? false,
-            session_count: moduleStats?.count ?? 0,
-            last_used_at: moduleStats?.lastUsed,
-        };
-    });
-});
-
-export const saveModule = onCall(async (req) => {
-    const uid = req.auth?.uid;
-    if (!uid) throw new HttpsError("unauthenticated", "You must be logged in.");
-
-    const { moduleData } = req.data;
-    if (!moduleData?.slug) throw new HttpsError("invalid-argument", "Module data with a slug is required.");
-
-    const moduleRef = db.collection("modules").doc(moduleData.slug);
-    const doc = await moduleRef.get();
-
-    if (doc.exists && doc.data()?.user_id !== uid) {
-        throw new HttpsError("permission-denied", "You do not own this module.");
-    }
-
-    const dataToSave = {
-        ...moduleData,
-        user_id: uid,
-        updated_at: FieldValue.serverTimestamp(),
-        ...(doc.exists ? {} : { created_at: FieldValue.serverTimestamp() }),
-    };
-
-    await moduleRef.set(dataToSave, { merge: true });
-    return { ...doc.data(), ...dataToSave };
-});
-
-export const deleteModule = onCall(async (req) => {
-    const uid = req.auth?.uid;
-    if (!uid) throw new HttpsError("unauthenticated", "You must be logged in.");
-
-    const { slug } = req.data;
-    if (!slug) throw new HttpsError("invalid-argument", "A module slug is required.");
-
-    const moduleRef = db.collection("modules").doc(slug);
-    const doc = await moduleRef.get();
-    if (!doc.exists || doc.data()?.user_id !== uid) {
-        throw new HttpsError("permission-denied", "You do not own this module.");
-    }
-
-    // --- Comprehensive Data Cleanup ---
-    logger.info(`Starting deletion for module ${slug}`);
-    const collectionsToDelete = [
-        "tutorLogs", "sessions", "chatMessages", "checkpointResponses",
-        "aiSuggestions", "traineeSuggestions", "flagged_questions", "feedbackLogs"
-    ];
-    const deletionPromises: Promise<any>[] = collectionsToDelete.map(coll =>
-        db.collection(coll).where("module_id", "==", slug).get().then(snap => {
-            const batch = db.batch();
-            snap.forEach(d => batch.delete(d.ref));
-            return batch.commit();
-        })
-    );
-
-    // Video file in GCS
-    const videoUrl = doc.data()?.video_url;
-    if (videoUrl && typeof videoUrl === "string") {
-        deletionPromises.push(
-            storage.bucket().file(videoUrl).delete().catch(e =>
-                logger.warn(`Could not delete video ${videoUrl} for module ${slug}:`, e)
-            )
-        );
-    }
-
-    // Main module doc
-    deletionPromises.push(moduleRef.delete());
-
-    await Promise.all(deletionPromises);
-    logger.info(`Successfully deleted module ${slug} and all associated data.`);
-    return { success: true };
-});
-
-
-// --- GCS Signed URL Functions ---
-
-export const getSignedUploadUrl = onCall(async (req) => {
-    const uid = req.auth?.uid;
-    if (!uid) throw new HttpsError("unauthenticated", "You must be logged in.");
-
-    const { slug, contentType, fileExtension } = req.data;
-    const filePath = `videos/${uid}/${slug}.${fileExtension}`;
-    const file = storage.bucket().file(filePath);
-    const [url] = await file.getSignedUrl({
-        version: "v4",
-        action: "write",
-        expires: Date.now() + 15 * 60 * 1000, // 15 mins
-        contentType,
-    });
-    return { uploadUrl: url, filePath };
-});
-
-export const getSignedManualUploadUrl = onCall(async (req) => {
-    const uid = req.auth?.uid;
-    if (!uid) throw new HttpsError("unauthenticated", "You must be logged in.");
-
-    const { fileName, contentType } = req.data;
-    // Sanitize filename to prevent path traversal
-    const safeFileName = fileName.replace(/[^a-zA-Z0-9_.-]/g, "_");
-    const filePath = `manuals_for_processing/${uid}/${Date.now()}_${safeFileName}`;
-
-    const file = storage.bucket().file(filePath);
-    const [url] = await file.getSignedUrl({
-        version: "v4",
-        action: "write",
-        expires: Date.now() + 15 * 60 * 1000, // 15 mins
-        contentType,
-    });
-
-    return { uploadUrl: url, filePath };
-});
-
-
-export const getSignedDownloadUrl = onCall(async (req) => {
-    const { filePath } = req.data;
-    if (!filePath) throw new HttpsError("invalid-argument", "A file path is required.");
-
-    const file = storage.bucket().file(filePath);
-    const [url] = await file.getSignedUrl({
-        version: "v4",
-        action: "read",
-        expires: Date.now() + 60 * 60 * 1000, // 1 hour
-    });
-    return { downloadUrl: url };
-});
-
-
-// --- Session & Chat Functions ---
-
-export const getSession = onCall(async (req) => {
-    const { moduleId, sessionToken } = req.data;
-    const snap = await db.collection("sessions").where("module_id", "==", moduleId).where("session_token", "==", sessionToken).limit(1).get();
-    return snap.empty ? null : snap.docs[0].data();
-});
-
-export const saveSession = onCall(async (req) => {
-    const { moduleId, sessionToken, ...dataToSave } = req.data;
-    const snap = await db.collection("sessions").where("module_id", "==", moduleId).where("session_token", "==", sessionToken).limit(1).get();
-
-    dataToSave.updated_at = FieldValue.serverTimestamp();
-    if (snap.empty) {
-        dataToSave.created_at = FieldValue.serverTimestamp();
-        await db.collection("sessions").add({ module_id: moduleId, session_token: sessionToken, ...dataToSave });
-    } else {
-        await snap.docs[0].ref.update(dataToSave);
-    }
-    return { success: true };
-});
-
-export const getChatHistory = onCall(async (req) => {
-    const { moduleId, sessionToken } = req.data;
-    const snap = await db.collection("chatMessages")
-        .where("module_id", "==", moduleId)
-        .where("session_token", "==", sessionToken)
-        .orderBy("created_at")
-        .get();
-    return snap.docs.map(doc => ({ ...doc.data(), id: doc.id }));
-});
-
-export const saveChatMessage = onCall(async (req) => {
-    const { moduleId, sessionToken, message } = req.data;
-    await db.collection("chatMessages").doc(message.id).set({
-        ...message,
-        module_id: moduleId,
-        session_token: sessionToken,
-        created_at: FieldValue.serverTimestamp(),
-    });
-    return { success: true };
-});
-
-export const updateMessageFeedback = onCall(async (req) => {
-    if (!req.auth?.uid) throw new HttpsError("unauthenticated", "Authentication required.");
-    const { messageId, feedback } = req.data;
-    await db.collection("chatMessages").doc(messageId).update({ feedback });
-    return { success: true };
-});
-
-
-// --- AI, Analytics & Feedback Functions ---
-interface DetectedAlias {
-    alias: string;
-    formalName: string;
-}
-interface LogTutorInteractionData {
-    userQuestion: string;
-    tutorResponse: string;
-    moduleId: string;
-    stepIndex: number;
-    templateId?: string;
-    stepTitle?: string;
-    remoteType?: string;
-    aliases?: DetectedAlias[];
-}
-
-export const logTutorInteraction = onCall({ secrets: ["API_KEY"] }, async (req: CallableRequest<LogTutorInteractionData>) => {
-    const uid = req.auth?.uid;
-    if (!uid) throw new HttpsError("unauthenticated", "You must be logged in.");
-
-    const { userQuestion, tutorResponse, moduleId, stepIndex, templateId, stepTitle, remoteType, aliases } = req.data;
-
-    // --- Rate Limiting ---
-    const today = new Date().toISOString().split("T")[0];
-    const usageRef = db.collection("userUsage").doc(`${uid}_${today}`);
-    const usageDoc = await usageRef.get();
-
-    if ((usageDoc.data()?.tutorInteractions ?? 0) >= DAILY_TUTOR_LIMIT) {
-        throw new HttpsError("resource-exhausted", "You have reached the daily limit for AI tutor interactions.");
-    }
-    // --- End Rate Limiting ---
-
-    const vector = await generateEmbedding(userQuestion);
-    await db.collection("tutorLogs").add({
-        uid,
-        user_question: userQuestion,
-        tutor_response: tutorResponse,
-        module_id: moduleId,
-        step_index: stepIndex,
-        template_id: templateId,
-        step_title: stepTitle,
-        remote_type: remoteType,
-        aliases: aliases ?? [],
-        vector,
-        created_at: FieldValue.serverTimestamp(),
-    });
-
-    // New logic for logging alias usage for analytics
-    if (aliases && aliases.length > 0) {
-        for (const detected of aliases) {
-            // Create a document ID from the module, formal name, and the alias phrase itself.
-            // Sanitize the alias to make it a safe document ID.
-            const sanitizedAlias = detected.alias.replace(/[^a-zA-Z0-9-]/g, "_");
-            const docId = `${moduleId}_${detected.formalName.replace(/\s/g, "")}_${sanitizedAlias}`;
-            const logRef = db.collection("alias_logs").doc(docId);
-
-            try {
-                await db.runTransaction(async (tx) => {
-                    const doc = await tx.get(logRef);
-                    if (doc.exists) {
-                        tx.update(logRef, { frequency: FieldValue.increment(1) });
-                    } else {
-                        tx.set(logRef, {
-                            phrase: detected.alias, // log the informal phrase
-                            mappedButton: detected.formalName,
-                            moduleId: moduleId,
-                            frequency: 1,
-                            createdAt: FieldValue.serverTimestamp(),
-                        });
-                    }
-                });
-            } catch (e) {
-                logger.error("Alias log transaction failed:", e);
-                // Non-fatal error for analytics logging
-            }
-        }
-    }
-
-
-    await usageRef.set({ tutorInteractions: FieldValue.increment(1) }, { merge: true });
-    return { status: "logged" };
-});
-
-export const findSimilarInteractions = onCall({ secrets: ["API_KEY"] }, async (req) => {
-    if (!req.auth?.uid) throw new HttpsError("unauthenticated", "Authentication required.");
-    const { question, moduleId } = req.data;
-    const queryVector = await generateEmbedding(question);
-
-    // Fetch the module to get the templateId if it exists
-    const moduleDoc = await db.collection("modules").doc(moduleId).get();
-    const templateId = moduleDoc.data()?.metadata?.templateId;
-
-    let query = db.collection("tutorLogs").where("module_id", "==", moduleId);
-    if (templateId) {
-        // If template exists, broaden search to all modules with the same template
-        query = db.collection("tutorLogs").where("template_id", "==", templateId);
-    }
-    const snapshot = await query.get();
-
-
-    const results = snapshot.docs.map(doc => {
-        const data = doc.data();
-        const similarity = cosineSimilarity(queryVector, data.vector);
-        return { ...data, id: doc.id, similarity };
-    });
-
-    return results
-        .filter(r => r.similarity > 0.8)
-        .sort((a, b) => b.similarity - a.similarity)
-        .slice(0, 3);
-});
-
-const refinementSchema = {
+const transcriptWithConfidenceSchema = {
     type: Type.OBJECT,
     properties: {
-        newDescription: {
-            type: Type.STRING,
-            description: "The rewritten, clearer step description that addresses the user's points of confusion.",
+        overallConfidence: {
+            type: Type.NUMBER,
+            description: "A score from 0.0 to 1.0 representing your confidence in the transcription's accuracy based on audio clarity. 1.0 is perfect, 0.0 is unintelligible."
         },
-        newAlternativeMethod: {
-            type: Type.OBJECT,
-            nullable: true,
-            description: "If a completely new alternative method is warranted by the confusion, define it here. Otherwise, null.",
-            properties: {
-                title: { type: Type.STRING, description: "A title for the new alternative method." },
-                description: { type: Type.STRING, description: "The description for the new alternative method." },
-            },
+        uncertainWords: {
+            type: Type.ARRAY,
+            description: "An array of specific words or short phrases from the transcript that you are uncertain about due to mumbling, background noise, or ambiguity.",
+            items: { type: Type.STRING }
         },
+        transcript: {
+            type: Type.ARRAY,
+            description: "A full, line-by-line transcript of the video.",
+            items: {
+                type: Type.OBJECT,
+                properties: {
+                    start: { type: Type.NUMBER, description: "Start time of the speech segment in seconds." },
+                    end: { type: Type.NUMBER, description: "End time of the speech segment in seconds." },
+                    text: { type: Type.STRING, description: "The transcribed text for this segment, with filler words like 'um' or 'uh' removed." },
+                },
+                required: ["start", "end", "text"]
+            }
+        }
     },
-    required: ["newDescription", "newAlternativeMethod"],
+    required: ["overallConfidence", "uncertainWords", "transcript"]
 };
 
-export const refineStep = onCall(
-    { secrets: ["API_KEY"] },
-    async (request): Promise<{ suggestion: any }> => {
-        if (!request.auth?.uid) throw new HttpsError("unauthenticated", "Authentication required.");
-        const ai = getAiClient();
-        const { moduleId, stepIndex } = request.data;
-        const moduleDoc = await db.collection("modules").doc(moduleId).get();
-        if (!moduleDoc.exists) throw new HttpsError("not-found", "Module not found.");
-        const step = moduleDoc.data()?.steps?.[stepIndex];
-        if (!step) throw new HttpsError("not-found", "Step not found.");
+const moduleFromTextSchema = {
+    type: Type.OBJECT,
+    properties: {
+        slug: { type: Type.STRING, description: "A URL-friendly slug for the module, based on the title (e.g., 'how-to-boil-water')." },
+        title: { type: Type.STRING, description: "A concise, descriptive title for the overall process." },
+        steps: {
+            type: Type.ARRAY,
+            description: "A list of the sequential steps in the process.",
+            items: {
+                type: Type.OBJECT,
+                properties: {
+                    start: { type: Type.NUMBER, description: "The start time of this step in seconds. Set to 0 as a placeholder." },
+                    end: { type: Type.NUMBER, description: "The end time of this step in seconds. Set to 0 as a placeholder." },
+                    title: { type: Type.STRING, description: "A short, action-oriented title for the step (e.g., 'Toast the Bread')." },
+                    description: { type: Type.STRING, description: "A detailed explanation of how to perform this step." },
+                    checkpoint: { type: Type.STRING, nullable: true, description: "A question to verify the trainee's understanding of this step. Should be null if not applicable." },
+                    alternativeMethods: {
+                        type: Type.ARRAY,
+                        description: "Optional alternative ways to perform the step. Should be an empty array if not applicable.",
+                        items: { type: Type.OBJECT, properties: { title: { type: Type.STRING }, description: { type: Type.STRING } }, required: ["title", "description"] }
+                    }
+                },
+                required: ["start", "end", "title", "description", "checkpoint", "alternativeMethods"]
+            }
+        },
+    },
+    required: ["slug", "title", "steps"]
+};
 
-        const logsSnapshot = await db.collection("tutorLogs").where("module_id", "==", moduleId).where("step_index", "==", stepIndex).get();
-        const questions = [...new Set(logsSnapshot.docs.map((doc) => doc.data().user_question).filter(Boolean))];
-        if (questions.length === 0) return { suggestion: null };
+const intentDetectionSchema = {
+    type: Type.OBJECT,
+    properties: {
+        intent: {
+            type: Type.STRING,
+            description: "The user's primary goal, classified into one of the available categories.",
+            enum: ["power-on", "open-app", "watch-channel", "change-input", "adjust-volume", "troubleshoot", "navigate-menu", "unclear"]
+        },
+    },
+    required: ["intent"],
+};
 
-        const prompt = `
-            You are an expert instructional designer. A trainee is confused by a step in a manual.
-            **Current Step Title:** "${step.title}"
-            **Current Step Description:** "${step.description}"
-            **Trainee Questions Indicating Confusion:**\n- ${questions.join("\n- ")}
-            **Your Task:**
-            1. Rewrite the 'description' to be much clearer and to proactively answer the trainee's questions.
-            2. If the confusion suggests a fundamentally different way to perform the step, create a new 'alternativeMethod'.
-            3. Return the result as a JSON object adhering to the provided schema.
-        `;
 
+// --- Internal File Handling Helper ---
+async function fileToGenerativePart(file: File): Promise<Part> {
+    const base64EncodedDataPromise = new Promise<string>((resolve) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve((reader.result as string).split(',')[1]);
+        reader.readAsDataURL(file);
+    });
+    return {
+        inlineData: {
+            data: await base64EncodedDataPromise,
+            mimeType: file.type,
+        },
+    };
+}
+
+// --- Safe JSON Parsing Helper ---
+function parseJson<T>(text: string | undefined): T {
+    if (!text) {
+        throw new Error("AI returned an empty response which could not be parsed as JSON.");
+    }
+    try {
+        return JSON.parse(text.trim()) as T;
+    } catch (e) {
+        console.error("Failed to parse AI JSON response:", text);
+        if (e instanceof SyntaxError) {
+            throw new Error("The AI returned invalid JSON.");
+        }
+        throw e;
+    }
+}
+
+
+// --- Module Creation Services ---
+
+export const getTranscriptWithConfidence = async (videoFile: File): Promise<TranscriptAnalysis> => {
+    if (import.meta.env.DEV) console.time('[AI Perf] getTranscriptWithConfidence');
+
+    const ai = getAiClient();
+    console.log("[AI Service] Generating transcript with confidence from video...");
+    const videoFilePart = await fileToGenerativePart(videoFile);
+    const prompt = `You are an expert transcriber with a confidence scoring system. Analyze this video and return a JSON object containing:
+1.  'transcript': A full, clean, line-by-line transcript.
+2.  'overallConfidence': A score from 0.0 to 1.0 indicating how clear the audio was and how confident you are in the transcription.
+3.  'uncertainWords': An array of words or short phrases you were unsure about due to mumbling, background noise, or ambiguity.
+The output MUST be a single, valid JSON object adhering to the provided schema.`;
+
+    try {
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: { parts: [{ text: prompt }, videoFilePart] },
+            config: {
+                responseMimeType: "application/json",
+                responseSchema: transcriptWithConfidenceSchema,
+            },
+        });
+        const jsonText = response.text;
+        if (!jsonText) {
+            console.warn("[AI Service] Transcript generation returned empty response. This may be normal for silent videos.");
+            return { transcript: [], confidence: 0, uncertainWords: [] };
+        }
+        const parsed = parseJson<{ transcript?: TranscriptLine[], overallConfidence?: number, uncertainWords?: string[] }>(jsonText);
+        return {
+            transcript: parsed.transcript || [],
+            confidence: parsed.overallConfidence ?? 0.5,
+            uncertainWords: parsed.uncertainWords || []
+        };
+    } catch (error) {
+        console.error("[AI Service] Error generating transcript:", error);
+        throw error;
+    } finally {
+        if (import.meta.env.DEV) console.timeEnd('[AI Perf] getTranscriptWithConfidence');
+    }
+};
+
+export const generateModuleFromContext = async (context: {
+    title: string;
+    transcript: string;
+    notes?: string;
+    confidence: number;
+}): Promise<GeneratedModuleData> => {
+    if (import.meta.env.DEV) console.time('[AI Perf] generateModuleFromContext');
+
+    const ai = getAiClient();
+    console.log("[AI Service] Generating module from context...");
+
+    const prompt = `Analyze the provided transcript and context to generate a structured training module.
+    
+    **Process Title:** ${context.title}
+    **Transcript:**
+    ${context.transcript}
+    
+    **Additional Notes:** ${context.notes || "No additional notes provided."}
+    
+    Based on this, create a JSON object with:
+    - A URL-friendly 'slug'.
+    - A concise 'title'.
+    - An array of 'steps', where each step has a 'title', a detailed 'description', an optional 'checkpoint' question, and optional 'alternativeMethods'.
+    - Set 'start' and 'end' times for steps to 0 as placeholders.`;
+
+    try {
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: prompt,
+            config: {
+                responseMimeType: "application/json",
+                responseSchema: moduleFromTextSchema,
+            },
+        });
+
+        const text = response.text;
+        if (!text) throw new Error("AI returned empty response for module generation.");
+        return parseJson<GeneratedModuleData>(text);
+
+    } catch (error) {
+        console.error("[AI Service] Error generating module from context:", error);
+        throw error;
+    } finally {
+        if (import.meta.env.DEV) console.timeEnd('[AI Perf] generateModuleFromContext');
+    }
+};
+
+export const generateModuleFromModelNumber = async (brand: string, model: string): Promise<GeneratedModuleData> => {
+    if (import.meta.env.DEV) console.time('[AI Perf] generateModuleFromModelNumber');
+    const ai = getAiClient();
+    console.log("[AI Service] Generating module from model number...");
+
+    const prompt = `You are an expert technical writer. Create a simple, step-by-step training guide for a device.
+    
+    **Device Brand:** ${brand}
+    **Device Model:** ${model}
+    
+    Search the web for information about this device if you don't know it. Create a JSON object for a training module with:
+    - A URL-friendly 'slug'.
+    - A concise 'title' (e.g., "How to Use the ${brand} ${model}").
+    - An array of 'steps', where each step has a 'title' and a detailed 'description'.
+    - Infer 'checkpoint' questions and 'alternativeMethods' where appropriate, but they can be null or empty arrays.
+    - Set 'start' and 'end' times for all steps to 0 as placeholders.
+    If you cannot find any information on this model, your response must be an empty JSON object {}.`;
+
+    try {
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: prompt,
+            config: {
+                responseMimeType: "application/json",
+                responseSchema: moduleFromTextSchema,
+                tools: [{ googleSearch: {} }],
+            },
+        });
+
+        const text = response.text;
+        if (!text || text.trim() === '{}') {
+            throw new Error(`AI could not find information for model: ${brand} ${model}. Please try uploading a manual.`);
+        }
+        return parseJson<GeneratedModuleData>(text);
+
+    } catch (error) {
+        console.error("[AI Service] Error generating module from model number:", error);
+        throw error;
+    } finally {
+        if (import.meta.env.DEV) console.timeEnd('[AI Perf] generateModuleFromModelNumber');
+    }
+};
+
+
+// --- Chat & Tutoring Services ---
+
+export const detectIntent = async (userQuestion: string): Promise<string> => {
+    if (import.meta.env.DEV) console.time('[AI Perf] detectIntent');
+    const ai = getAiClient();
+    const prompt = `Classify the user's intent based on their question about using a device like a TV remote. The available intents are: "power-on", "open-app", "watch-channel", "change-input", "adjust-volume", "troubleshoot", "navigate-menu", "unclear".
+    
+    User Question: "${userQuestion}"
+    
+    Return a single JSON object with the key "intent" and one of the enum values.`;
+
+    try {
         const response = await ai.models.generateContent({
             model: "gemini-2.5-flash",
             contents: prompt,
             config: {
                 responseMimeType: "application/json",
-                responseSchema: refinementSchema,
+                responseSchema: intentDetectionSchema,
             },
         });
+        const text = response.text;
+        if (!text) return "unclear";
+        const result = parseJson<{ intent: string }>(text);
+        return result.intent || "unclear";
+    } catch (error) {
+        console.warn("[AI Service] Intent detection failed:", error);
+        return "unclear";
+    } finally {
+        if (import.meta.env.DEV) console.timeEnd('[AI Perf] detectIntent');
+    }
+};
 
-        if (!response.text) {
-            throw new HttpsError("internal", "AI returned an empty response.");
+
+function getChatTutorSystemInstruction(stepsContext: string, fullTranscript?: string, templateContext?: TemplateContext): string {
+    let baseInstruction = `You are the Adapt AI Tutor, an expert teaching assistant. Your single most important goal is to teach a trainee the specific process designed by their company's owner.\n\n`;
+
+    // Add alias context to help the AI understand informal language.
+    baseInstruction += `${getAliasPromptInjection()}\n\n`;
+
+    if (templateContext) {
+        baseInstruction += "--- IMPORTANT TEMPLATE CONTEXT ---\n";
+        if (templateContext.ai_context_notes) {
+            baseInstruction += `${templateContext.ai_context_notes}\n`;
         }
+        if (templateContext.buttons?.length > 0) {
+            baseInstruction += "Use this button glossary when referring to controls:\n";
+            templateContext.buttons.forEach((btn: { name: string, symbol: string, function: string }) => {
+                baseInstruction += `- ${btn.name} (${btn.symbol || 'text label'}): ${btn.function}\n`;
+            });
+        }
+        baseInstruction += "--- END TEMPLATE CONTEXT ---\n\n";
+    }
 
+    const transcriptSection = fullTranscript?.trim()
+        ? `--- FULL VIDEO TRANSCRIPT (For additional context) ---\n${fullTranscript}\n--- END FULL VIDEO TRANSCRIPT ---`
+        : "A video transcript was not available for this module.";
+
+    return `${baseInstruction}Your instructions are provided in the 'PROCESS STEPS' document below. This is your primary source of truth.
+
+A 'FULL VIDEO TRANSCRIPT' may also be provided for additional context.
+
+**Your Core Directives:**
+1.  **Prioritize Process Steps:** Always base your answers on the 'PROCESS STEPS'. When asked a question (e.g., "what's next?"), find the relevant step and explain it using only the owner's instructions from that document.
+2.  **Use Template Context:** If template context (like a button glossary) is provided, you MUST use it to be precise in your answers.
+3.  **Use Transcript for Context:** Use the 'FULL VIDEO TRANSCRIPT' only to answer questions about something the speaker said that isn't in the step descriptions.
+4.  **Handle Out-of-Scope Questions:** If a question cannot be answered from the provided materials, you may use Google Search. You MUST first state: "That information isn't in this specific training, but here is what I found online:" before providing the answer.
+5.  **Use Timestamps:** When referencing the transcript, include the relevant timestamp in your answer in the format [HH:MM:SS] or [MM:SS].
+6.  **Suggest Improvements Correctly:** If a trainee's question implies they are looking for a better or faster way to do something, you may suggest a new method. You MUST format this suggestion clearly by wrapping it in special tags: [SUGGESTION]Your suggestion here.[/SUGGESTION]. Do not present suggestions as official process.
+
+--- PROCESS STEPS (Source of Truth) ---
+${stepsContext}
+--- END PROCESS STEPS ---
+
+${transcriptSection}
+`;
+}
+
+export const startChat = (stepsContext: string, fullTranscript?: string, history: Content[] = [], templateContext?: TemplateContext): Chat => {
+    const ai = getAiClient();
+    const systemInstruction = getChatTutorSystemInstruction(stepsContext, fullTranscript, templateContext);
+    return ai.chats.create({
+        model: 'gemini-2.5-flash',
+        config: { systemInstruction, tools: [{ googleSearch: {} }] },
+        history,
+    });
+};
+
+export async function sendMessageWithRetry(
+    chat: Chat,
+    prompt: string,
+    retries: number = 2
+): Promise<AsyncGenerator<GenerateContentResponse, void, unknown>> {
+    for (let attempt = 1; attempt <= retries; attempt++) {
         try {
-            const parsedSuggestion = JSON.parse(response.text.trim());
-            return { suggestion: parsedSuggestion };
-        } catch (e) {
-            logger.error("Failed to parse AI JSON for refineStep:", response.text, e);
-            throw new HttpsError("internal", "AI returned invalid JSON.");
-        }
-    }
-);
-
-export const flagQuestion = onCall(
-    async (request): Promise<{ status: string; issueId: string }> => {
-        const uid = request.auth?.uid;
-        if (!uid) {
-            throw new HttpsError("unauthenticated", "You must be logged in to flag a question.");
-        }
-        const data = request.data;
-        if (!data.module_id || !data.user_question) {
-            throw new HttpsError("invalid-argument", "Missing required fields for flagging.");
-        }
-
-        const ref = db.collection("flagged_questions").doc();
-        await ref.set({
-            ...data,
-            user_id: uid,
-            created_at: FieldValue.serverTimestamp(),
-        });
-        return { status: "ok", issueId: ref.id };
-    }
-);
-
-export const getFlaggedQuestions = onCall(
-    async (request): Promise<any[]> => {
-        const uid = request.auth?.uid;
-        if (!uid) throw new HttpsError("unauthenticated", "You must be logged in.");
-
-        const { moduleId } = request.data;
-        if (!moduleId) throw new HttpsError("invalid-argument", "A module ID must be provided.");
-
-        const moduleDoc = await db.collection("modules").doc(moduleId).get();
-        if (!moduleDoc.exists || moduleDoc.data()?.user_id !== uid) {
-            throw new HttpsError("permission-denied", "You do not have permission to view flagged questions for this module.");
-        }
-
-        const snapshot = await db.collection("flagged_questions")
-            .where("module_id", "==", moduleId)
-            .orderBy("created_at", "desc")
-            .get();
-
-        return snapshot.docs.map((doc) => ({ ...doc.data(), id: doc.id }));
-    }
-);
-
-export const getCheckpointFailureStats = onCall(async (request) => {
-    const { moduleId } = request.data;
-    const snapshot = await db.collection("checkpointResponses")
-        .where("module_id", "==", moduleId)
-        .where("answer", "==", "No")
-        .get();
-
-    const stats: Record<string, { step_index: number, checkpoint_text: string, count: number }> = {};
-    snapshot.docs.forEach((doc) => {
-        const data = doc.data();
-        const key = `${data.step_index}:${data.checkpoint_text}`;
-        if (!stats[key]) {
-            stats[key] = { step_index: data.step_index, checkpoint_text: data.checkpoint_text, count: 0 };
-        }
-        stats[key].count++;
-    });
-    return Object.values(stats).sort((a, b) => b.count - a.count);
-});
-
-export const getQuestionFrequency = onCall(async (request) => {
-    const { moduleId } = request.data;
-    if (!moduleId) throw new HttpsError("invalid-argument", "Module ID is required.");
-
-    const snapshot = await db.collection("tutorLogs").where("module_id", "==", moduleId).get();
-    const stats: Record<string, { question: string, stepIndex: number, count: number }> = {};
-
-    snapshot.docs.forEach((doc) => {
-        const data = doc.data();
-        if (data.user_question) {
-            const key = data.user_question.toLowerCase().trim();
-            if (!stats[key]) {
-                stats[key] = { question: data.user_question, stepIndex: data.step_index, count: 0 };
+            return await chat.sendMessageStream({ message: prompt });
+        } catch (err) {
+            console.warn(`[AI Service] sendMessageStream attempt ${attempt} failed.`, err);
+            if (attempt === retries) {
+                console.error("[AI Service] All retry attempts failed for sendMessageStream.");
+                throw err;
             }
-            stats[key].count++;
+            await new Promise(resolve => setTimeout(resolve, 500 * attempt));
         }
-    });
-    return Object.values(stats).sort((a, b) => b.count - a.count);
-});
-
-// --- Suggestions Service Functions ---
-
-export const submitSuggestion = onCall(async (req) => {
-    const uid = req.auth?.uid; // Can be anonymous
-    const { moduleId, stepIndex, text } = req.data;
-    const ref = await db.collection("traineeSuggestions").add({
-        module_id: moduleId,
-        step_index: stepIndex,
-        text: text,
-        user_id: uid,
-        status: "pending",
-        created_at: FieldValue.serverTimestamp(),
-    });
-    return { id: ref.id, ...req.data };
-});
-
-export const deleteTraineeSuggestion = onCall(async (req) => {
-    if (!req.auth?.uid) throw new HttpsError("unauthenticated", "Authentication required.");
-    await db.collection("traineeSuggestions").doc(req.data.suggestionId).delete();
-    return { success: true };
-});
-
-// --- Checkpoint Service Functions ---
-
-export const logCheckpointResponse = onCall(async (req) => {
-    const { moduleId, userId, stepIndex, checkpointText, answer, comment } = req.data;
-    await db.collection("checkpointResponses").add({
-        module_id: moduleId,
-        user_id: userId,
-        step_index: stepIndex,
-        checkpoint_text: checkpointText,
-        answer,
-        comment,
-        created_at: FieldValue.serverTimestamp(),
-    });
-    return { success: true };
-});
-
-// --- Feedback Service Functions (for Live Coach) ---
-
-export const logAiFeedback = onCall(async (req) => {
-    const { sessionToken, moduleId, stepIndex, userPrompt, aiResponse, feedback } = req.data;
-    const ref = await db.collection("feedbackLogs").add({
-        sessionToken, moduleId, stepIndex, userPrompt, aiResponse, feedback,
-        created_at: FieldValue.serverTimestamp(),
-    });
-    return { logId: ref.id };
-});
-
-export const updateFeedbackWithFix = onCall({ secrets: ["API_KEY"] }, async (req) => {
-    const { logId, fixOrRating } = req.data;
-    const updateData: { feedback: "good" | "bad", userFixText?: string, fixEmbedding?: number[] } = {
-        feedback: fixOrRating === "good" ? "good" : "bad",
-    };
-    if (fixOrRating !== "good") {
-        updateData.userFixText = fixOrRating;
-        updateData.fixEmbedding = await generateEmbedding(fixOrRating);
     }
-    await db.collection("feedbackLogs").doc(logId).update(updateData);
-    return { success: true };
-});
+    throw new Error("sendMessageWithRetry failed after all attempts.");
+}
 
-
-// --- Routines Service Functions ---
-
-export const saveRoutine = onCall(async (req) => {
-    const uid = req.auth?.uid;
-    if (!uid) throw new HttpsError("unauthenticated", "Authentication required.");
-
-    const { routine } = req.data;
-    const { id, ...dataToSave } = routine;
-
-    dataToSave.userId = uid;
-    dataToSave.updatedAt = FieldValue.serverTimestamp();
-
-    if (id) {
-        const routineRef = db.collection("routines").doc(id);
-        await routineRef.update(dataToSave);
-        const doc = await routineRef.get();
-        return { id: doc.id, ...doc.data() };
-    } else {
-        dataToSave.createdAt = FieldValue.serverTimestamp();
-        const newRef = await db.collection("routines").add(dataToSave);
-        const doc = await newRef.get();
-        return { id: doc.id, ...doc.data() };
-    }
-});
-
-export const getRoutineForIntent = onCall(async (req) => {
-    const { templateId, intent } = req.data;
-    const snap = await db.collection("routines")
-        .where("templateId", "==", templateId)
-        .where("intent", "==", intent)
-        .limit(1)
-        .get();
-
-    if (snap.empty) return null;
-
-    const doc = snap.docs[0];
-    return { id: doc.id, ...doc.data() };
-});
-
-export const getSignedRoutineVideoUploadUrl = onCall(async (req) => {
-    const uid = req.auth?.uid;
-    if (!uid) throw new HttpsError("unauthenticated", "Authentication required.");
-
-    const { templateId, intent, contentType } = req.data;
-    const filePath = `routines_videos/${uid}/${templateId}_${intent}_${Date.now()}`;
-    const file = storage.bucket().file(filePath);
-
-    const [url] = await file.getSignedUrl({
-        version: "v4",
-        action: "write",
-        expires: Date.now() + 15 * 60 * 1000,
-        contentType,
-    });
-
-    return { uploadUrl: url, filePath };
-});
-
-// --- Text-to-Speech Service ---
-export const textToSpeech = onCall({ secrets: ["API_KEY"] }, async (req) => {
-    const { text, voiceId } = req.data;
-    const GOOGLE_API_KEY = process.env.API_KEY;
-
-    if (!GOOGLE_API_KEY) {
-        logger.error("Google Cloud TTS API key is not configured. Ensure the function is deployed with the 'API_KEY' secret.");
-        throw new HttpsError("internal", "TTS service is not configured.");
-    }
-    if (!text || !voiceId) {
-        throw new HttpsError("invalid-argument", "Text and voiceId (a Google Cloud TTS voice name) are required.");
-    }
-
-    const ttsUrl = `https://texttospeech.googleapis.com/v1/text:synthesize?key=${GOOGLE_API_KEY}`;
-
-    // Extract language code from the voice name, e.g., "en-US-Wavenet-D" -> "en-US"
-    const languageCode = voiceId.split("-").slice(0, 2).join("-");
+export const getFallbackResponse = async (prompt: string, history: ChatMessage[], stepsContext: string, fullTranscript: string): Promise<string> => {
+    if (import.meta.env.DEV) console.time('[AI Perf] getFallbackResponse');
+    console.log("[AI Service] Attempting fallback AI provider...");
+    const ai = getAiClient();
+    const systemInstruction = getChatTutorSystemInstruction(stepsContext, fullTranscript);
+    const geminiHistory: Content[] = history.slice(-20).map(msg => ({ role: msg.role, parts: [{ text: msg.text }] }));
+    const contents = [...geminiHistory, { role: 'user', parts: [{ text: prompt }] }];
 
     try {
-        const response = await fetch(ttsUrl, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-                input: {
-                    text: text,
-                },
-                voice: {
-                    languageCode: languageCode,
-                    name: voiceId,
-                },
-                audioConfig: {
-                    audioEncoding: "MP3",
-                },
-            }),
-        });
-
-        if (!response.ok) {
-            const errorBody = await response.json();
-            logger.error(`Google Cloud TTS API error: ${response.status}`, errorBody);
-            const errorMessage = errorBody?.error?.message || `Failed to generate audio. Status: ${response.status}`;
-            throw new HttpsError("internal", errorMessage);
-        }
-
-        const data = await response.json() as { audioContent: string };
-
-        if (!data.audioContent) {
-            logger.error("Google Cloud TTS API response did not contain audioContent.");
-            throw new HttpsError("internal", "TTS service returned an empty audio response.");
-        }
-
-        // The API returns the audio content as a base64-encoded string, which is what the client expects.
-        return { audioContent: data.audioContent };
+        const response = await ai.models.generateContent({ model: 'gemini-2.5-flash', contents, config: { systemInstruction } });
+        const text = response.text;
+        if (!text) throw new Error("Fallback AI provider returned an empty response.");
+        return text;
     } catch (error) {
-        logger.error("Error calling Google Cloud TTS service:", error);
-        if (error instanceof HttpsError) throw error;
-        throw new HttpsError("internal", "An error occurred while generating speech.");
+        console.error("[AI Service] Fallback AI provider also failed:", error);
+        throw new Error("Sorry, the AI tutor is currently unavailable. Please try again later.");
+    } finally {
+        if (import.meta.env.DEV) console.timeEnd('[AI Perf] getFallbackResponse');
     }
-});
+};
+
+
+// --- Performance & Evaluation Services ---
+
+const performanceSummarySchema = {
+    type: Type.OBJECT,
+    properties: {
+        summary: {
+            type: Type.STRING,
+            description: "A friendly, one-paragraph summary of the user's performance. Congratulate them on completion and offer encouraging, personalized feedback based on the provided context. Keep it concise and positive."
+        },
+    },
+    required: ["summary"]
+};
+
+export const generatePerformanceSummary = async (moduleTitle: string, unclearSteps: ProcessStep[], userQuestions: string[]): Promise<{ summary: string }> => {
+    if (import.meta.env.DEV) console.time('[AI Perf] generatePerformanceSummary');
+    const ai = getAiClient();
+
+    let prompt = `Generate a brief, encouraging performance summary for a trainee who just completed the "${moduleTitle}" module.`;
+
+    if (unclearSteps.length > 0) {
+        prompt += `\nThey marked these steps as "unclear":\n- ${unclearSteps.map(s => s.title).join('\n- ')}`;
+    }
+    if (userQuestions.length > 0) {
+        prompt += `\nThey asked the AI tutor these questions:\n- "${userQuestions.slice(0, 3).join('"\n- "')}"`;
+    }
+    if (unclearSteps.length === 0 && userQuestions.length === 0) {
+        prompt += "\nThey completed the module without asking questions or marking any steps as unclear. Acknowledge their excellent performance."
+    }
+
+    try {
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: prompt,
+            config: {
+                responseMimeType: "application/json",
+                responseSchema: performanceSummarySchema,
+            },
+        });
+        const text = response.text;
+        if (!text) throw new Error("AI returned empty response for performance summary.");
+        return parseJson<{ summary: string }>(text);
+    } catch (error) {
+        console.error("[AI Service] Error generating performance summary:", error);
+        // Provide a safe fallback
+        return { summary: "Congratulations on completing the training! You did a great job." };
+    } finally {
+        if (import.meta.env.DEV) console.timeEnd('[AI Perf] generatePerformanceSummary');
+    }
+};
+
+const checkpointEvaluationSchema = {
+    type: Type.OBJECT,
+    properties: {
+        isCorrect: { type: Type.BOOLEAN, description: "Whether the user's answer correctly answers the checkpoint question based on the step description." },
+        feedback: { type: Type.STRING, description: "A brief, one-sentence explanation for why the answer is correct or incorrect." },
+        suggestedInstructionChange: { type: Type.STRING, nullable: true, description: "If the user's answer is wrong but logical, suggest a rewrite of the original step description to prevent this confusion. Otherwise, null." }
+    },
+    required: ["isCorrect", "feedback", "suggestedInstructionChange"]
+};
+
+export const evaluateCheckpointAnswer = async (step: ProcessStep, answer: string): Promise<CheckpointEvaluation> => {
+    if (import.meta.env.DEV) console.time('[AI Perf] evaluateCheckpointAnswer');
+    const ai = getAiClient();
+
+    const prompt = `A trainee is on step "${step.title}".
+    The instruction is: "${step.description}".
+    The checkpoint question is: "${step.checkpoint}".
+    The trainee's answer is: "${answer}".
+    
+    Evaluate if the answer is correct based on the instruction. Provide feedback and suggest an instruction change if needed.`;
+
+    try {
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: prompt,
+            config: {
+                responseMimeType: "application/json",
+                responseSchema: checkpointEvaluationSchema,
+            },
+        });
+        const text = response.text;
+        if (!text) throw new Error("AI returned empty response for checkpoint evaluation.");
+        return parseJson<CheckpointEvaluation>(text);
+    } catch (error) {
+        console.error("[AI Service] Error evaluating checkpoint:", error);
+        throw error;
+    } finally {
+        if (import.meta.env.DEV) console.timeEnd('[AI Perf] evaluateCheckpointAnswer');
+    }
+};
+
+// --- Image & Branching Services ---
+
+export const generateImage = async (prompt: string): Promise<string> => {
+    if (import.meta.env.DEV) console.time('[AI Perf] generateImage');
+    const ai = getAiClient();
+
+    try {
+        const response = await ai.models.generateImages({
+            model: 'imagen-3.0-generate-002',
+            prompt: prompt,
+            config: {
+                numberOfImages: 1,
+                outputMimeType: 'image/jpeg',
+            },
+        });
+        const base64ImageBytes = response.generatedImages?.[0]?.image?.imageBytes;
+        if (!base64ImageBytes) throw new Error("AI did not return an image.");
+        return `data:image/jpeg;base64,${base64ImageBytes}`;
+    } catch (error) {
+        console.error("[AI Service] Error generating image:", error);
+        throw error;
+    } finally {
+        if (import.meta.env.DEV) console.timeEnd('[AI Perf] generateImage');
+    }
+};
+
+
+const branchModuleSchema = {
+    type: Type.OBJECT,
+    properties: {
+        title: { type: Type.STRING, description: "A short, descriptive title for the new remedial mini-module (e.g., 'Troubleshooting the Scanner')." },
+        steps: {
+            type: Type.ARRAY,
+            description: "A list of 2-3 very simple, easy-to-follow step descriptions that address the user's points of confusion.",
+            items: { type: Type.STRING }
+        }
+    },
+    required: ["title", "steps"],
+};
+
+export const generateBranchModule = async (stepTitle: string, questions: string[]): Promise<GeneratedBranchModule> => {
+    if (import.meta.env.DEV) console.time('[AI Perf] generateBranchModule');
+    const ai = getAiClient();
+
+    const prompt = `A user is stuck on a training step called "${stepTitle}". They are confused and have asked the following questions:
+    - ${questions.join('\n- ')}
+    
+    Create a very simple, 2-3 step remedial mini-module to help them. The steps should be basic and clear. Provide a title for this new module.`;
+
+    try {
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: prompt,
+            config: {
+                responseMimeType: "application/json",
+                responseSchema: branchModuleSchema,
+            },
+        });
+        const text = response.text;
+        if (!text) throw new Error("AI returned empty response for branch module generation.");
+        return parseJson<GeneratedBranchModule>(text);
+    } catch (error) {
+        console.error("[AI Service] Error generating branch module:", error);
+        throw error;
+    } finally {
+        if (import.meta.env.DEV) console.timeEnd('[AI Perf] generateBranchModule');
+    }
+};

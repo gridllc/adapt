@@ -7,7 +7,7 @@ import type { GeneratedModuleData, TranscriptAnalysis } from '@/services/geminiS
 import { saveModule } from '@/services/moduleService';
 import { ModuleEditor } from '@/components/ModuleEditor';
 import { TranscriptEditor } from '@/components/TranscriptEditor';
-import type { TranscriptLine, VideoMetadata, AppModule, ModuleForInsert, Json } from '@/types';
+import type { TranscriptLine, VideoMetadata, AppModule, ModuleForInsert, Json, ProcessStep } from '@/types';
 import { UploadCloudIcon, XIcon, SparklesIcon, VideoIcon, LightbulbIcon, FileTextIcon, ArrowLeftIcon, TvIcon, FileJsonIcon } from '@/components/Icons';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/useToast';
@@ -179,7 +179,7 @@ const CreatePage: React.FC = () => {
         try {
             const transcriptText = editedTranscript.map(line => line.text).join('\n');
             const moduleData = await generateModuleFromContext({ title, transcript: transcriptText, notes, confidence: analysisResult.confidence });
-            const timedModuleData: GeneratedModuleData = { ...moduleData, steps: moduleData.steps.map(step => ({ ...step, start: editedTranscript.find(l => l.text.includes(step.title) || step.description.includes(l.text.substring(0, 30)))?.start ?? 0, end: editedTranscript.find(l => l.text.includes(step.title) || step.description.includes(l.text.substring(0, 30)))?.end ?? 0 })) };
+            const timedModuleData: GeneratedModuleData = { ...moduleData, steps: moduleData.steps.map((step: ProcessStep) => ({ ...step, start: editedTranscript.find(l => l.text.includes(step.title) || step.description.includes(l.text.substring(0, 30)))?.start ?? 0, end: editedTranscript.find(l => l.text.includes(step.title) || step.description.includes(l.text.substring(0, 30)))?.end ?? 0 })) };
             setGeneratedModule({ ...timedModuleData, transcript: editedTranscript, created_at: new Date().toISOString(), metadata: { is_ai_generated: true, templateId: DEFAULT_TEMPLATE_ID, intent: DEFAULT_INTENT }, user_id: user?.uid ?? null, video_url: null });
             setFlowStep('final');
             triggerPrompt();
