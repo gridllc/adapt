@@ -1,5 +1,4 @@
 import { onCall, HttpsError, CallableRequest } from "firebase-functions/v2/https";
-import { setGlobalOptions } from "firebase-functions/v2";
 import * as logger from "firebase-functions/logger";
 import * as admin from "firebase-admin";
 import { GoogleGenAI, Type } from "@google/genai";
@@ -12,12 +11,18 @@ admin.initializeApp();
 const db = admin.firestore();
 const storage = getStorage();
 
-// Set global options for all functions. This applies secrets and other configs to all functions in this file.
-setGlobalOptions({
+// Define explicit options for functions to make secret dependencies clear.
+const optionsWithApiKey = {
     timeoutSeconds: 60,
-    memory: "1GiB",
-    secrets: ["API_KEY"], // Ensure all functions can access the Gemini API key
-});
+    memory: "1GiB" as const,
+    secrets: ["API_KEY"],
+};
+
+const optionsWithoutApiKey = {
+    timeoutSeconds: 60,
+    memory: "1GiB" as const,
+};
+
 
 // --- Constants ---
 const BUCKET_NAME = "adapt-training-videos"; // Explicitly define the bucket name for all GCS operations.
@@ -72,7 +77,7 @@ const cosineSimilarity = (a: number[], b: number[]): number => {
 
 // --- Module Data Functions ---
 
-export const getModule = onCall(async (req: CallableRequest<{ moduleId: string }>) => {
+export const getModule = onCall(optionsWithoutApiKey, async (req: CallableRequest<{ moduleId: string }>) => {
     const { moduleId } = req.data;
     if (!moduleId) throw new HttpsError("invalid-argument", "A module ID is required.");
     const doc = await db.collection("modules").doc(moduleId).get();
@@ -80,7 +85,7 @@ export const getModule = onCall(async (req: CallableRequest<{ moduleId: string }
     return doc.data();
 });
 
-export const getAvailableModules = onCall(async () => {
+export const getAvailableModules = onCall(optionsWithoutApiKey, async () => {
     const modulesSnap = await db.collection("modules").get();
     const sessionsSnap = await db.collection("sessions").get();
 
@@ -108,7 +113,7 @@ export const getAvailableModules = onCall(async () => {
     });
 });
 
-export const saveModule = onCall(async (req: CallableRequest<{ moduleData: any }>) => {
+export const saveModule = onCall(optionsWithoutApiKey, async (req: CallableRequest<{ moduleData: any }>) => {
     const uid = req.auth?.uid;
     if (!uid) throw new HttpsError("unauthenticated", "You must be logged in.");
 
@@ -144,7 +149,7 @@ export const saveModule = onCall(async (req: CallableRequest<{ moduleData: any }
     return savedDoc.data();
 });
 
-export const deleteModule = onCall(async (req: CallableRequest<{ slug: string }>) => {
+export const deleteModule = onCall(optionsWithoutApiKey, async (req: CallableRequest<{ slug: string }>) => {
     const uid = req.auth?.uid;
     if (!uid) throw new HttpsError("unauthenticated", "You must be logged in.");
 
@@ -192,7 +197,7 @@ export const deleteModule = onCall(async (req: CallableRequest<{ slug: string }>
 
 // --- GCS Signed URL Functions ---
 
-export const getSignedUploadUrl = onCall(async (req: CallableRequest<{ slug: string, contentType: string, fileExtension: string }>) => {
+export const getSignedUploadUrl = onCall(optionsWithoutApiKey, async (req: CallableRequest<{ slug: string, contentType: string, fileExtension: string }>) => {
     const uid = req.auth?.uid;
     if (!uid) throw new HttpsError("unauthenticated", "You must be logged in.");
 
@@ -208,7 +213,7 @@ export const getSignedUploadUrl = onCall(async (req: CallableRequest<{ slug: str
     return { uploadUrl: url, filePath };
 });
 
-export const getSignedManualUploadUrl = onCall(async (req: CallableRequest<{ fileName: string, contentType: string }>) => {
+export const getSignedManualUploadUrl = onCall(optionsWithoutApiKey, async (req: CallableRequest<{ fileName: string, contentType: string }>) => {
     const uid = req.auth?.uid;
     if (!uid) throw new HttpsError("unauthenticated", "You must be logged in.");
 
@@ -229,7 +234,7 @@ export const getSignedManualUploadUrl = onCall(async (req: CallableRequest<{ fil
 });
 
 
-export const getSignedDownloadUrl = onCall(async (req: CallableRequest<{ filePath: string }>) => {
+export const getSignedDownloadUrl = onCall(optionsWithoutApiKey, async (req: CallableRequest<{ filePath: string }>) => {
     const { filePath } = req.data;
     if (!filePath) throw new HttpsError("invalid-argument", "A file path is required.");
 
@@ -245,13 +250,13 @@ export const getSignedDownloadUrl = onCall(async (req: CallableRequest<{ filePat
 
 // --- Session & Chat Functions ---
 
-export const getSession = onCall(async (req: CallableRequest<{ moduleId: string, sessionToken: string }>) => {
+export const getSession = onCall(optionsWithoutApiKey, async (req: CallableRequest<{ moduleId: string, sessionToken: string }>) => {
     const { moduleId, sessionToken } = req.data;
     const snap = await db.collection("sessions").where("module_id", "==", moduleId).where("session_token", "==", sessionToken).limit(1).get();
     return snap.empty ? null : snap.docs[0].data();
 });
 
-export const saveSession = onCall(async (req: CallableRequest<any>) => {
+export const saveSession = onCall(optionsWithoutApiKey, async (req: CallableRequest<any>) => {
     const { moduleId, sessionToken, ...dataToSave } = req.data;
     const snap = await db.collection("sessions").where("module_id", "==", moduleId).where("session_token", "==", sessionToken).limit(1).get();
 
@@ -265,7 +270,7 @@ export const saveSession = onCall(async (req: CallableRequest<any>) => {
     return { success: true };
 });
 
-export const getChatHistory = onCall(async (req: CallableRequest<{ moduleId: string, sessionToken: string }>) => {
+export const getChatHistory = onCall(optionsWithoutApiKey, async (req: CallableRequest<{ moduleId: string, sessionToken: string }>) => {
     const { moduleId, sessionToken } = req.data;
     const snap = await db.collection("chatMessages")
         .where("module_id", "==", moduleId)
@@ -275,7 +280,7 @@ export const getChatHistory = onCall(async (req: CallableRequest<{ moduleId: str
     return snap.docs.map(doc => ({ ...doc.data(), id: doc.id }));
 });
 
-export const saveChatMessage = onCall(async (req: CallableRequest<{ moduleId: string, sessionToken: string, message: any }>) => {
+export const saveChatMessage = onCall(optionsWithoutApiKey, async (req: CallableRequest<{ moduleId: string, sessionToken: string, message: any }>) => {
     const { moduleId, sessionToken, message } = req.data;
     await db.collection("chatMessages").doc(message.id).set({
         ...message,
@@ -286,7 +291,7 @@ export const saveChatMessage = onCall(async (req: CallableRequest<{ moduleId: st
     return { success: true };
 });
 
-export const updateMessageFeedback = onCall(async (req: CallableRequest<{ messageId: string, feedback: 'good' | 'bad' }>) => {
+export const updateMessageFeedback = onCall(optionsWithoutApiKey, async (req: CallableRequest<{ messageId: string, feedback: 'good' | 'bad' }>) => {
     if (!req.auth?.uid) throw new HttpsError("unauthenticated", "Authentication required.");
     const { messageId, feedback } = req.data;
     await db.collection("chatMessages").doc(messageId).update({ feedback });
@@ -310,7 +315,7 @@ interface LogTutorInteractionData {
     aliases?: DetectedAlias[];
 }
 
-export const logTutorInteraction = onCall(async (req: CallableRequest<LogTutorInteractionData>) => {
+export const logTutorInteraction = onCall(optionsWithApiKey, async (req: CallableRequest<LogTutorInteractionData>) => {
     const uid = req.auth?.uid;
     if (!uid) throw new HttpsError("unauthenticated", "You must be logged in.");
 
@@ -377,7 +382,7 @@ export const logTutorInteraction = onCall(async (req: CallableRequest<LogTutorIn
     return { status: "logged" };
 });
 
-export const findSimilarInteractions = onCall(async (req: CallableRequest<{ question: string, moduleId: string }>) => {
+export const findSimilarInteractions = onCall(optionsWithApiKey, async (req: CallableRequest<{ question: string, moduleId: string }>) => {
     if (!req.auth?.uid) throw new HttpsError("unauthenticated", "Authentication required.");
     const { question, moduleId } = req.data;
     const queryVector = await generateEmbedding(question);
@@ -427,6 +432,7 @@ const refinementSchema = {
 };
 
 export const refineStep = onCall(
+    optionsWithApiKey,
     async (request: CallableRequest<{ moduleId: string, stepIndex: number }>): Promise<{ suggestion: any }> => {
         if (!request.auth?.uid) throw new HttpsError("unauthenticated", "Authentication required.");
         const ai = getAiClient();
@@ -475,6 +481,7 @@ export const refineStep = onCall(
 );
 
 export const flagQuestion = onCall(
+    optionsWithoutApiKey,
     async (request: CallableRequest<any>): Promise<{ status: string; issueId: string }> => {
         const uid = request.auth?.uid;
         if (!uid) {
@@ -496,6 +503,7 @@ export const flagQuestion = onCall(
 );
 
 export const getFlaggedQuestions = onCall(
+    optionsWithoutApiKey,
     async (request: CallableRequest<{ moduleId: string }>): Promise<any[]> => {
         const uid = request.auth?.uid;
         if (!uid) throw new HttpsError("unauthenticated", "You must be logged in.");
@@ -517,7 +525,7 @@ export const getFlaggedQuestions = onCall(
     }
 );
 
-export const getCheckpointFailureStats = onCall(async (request: CallableRequest<{ moduleId: string }>) => {
+export const getCheckpointFailureStats = onCall(optionsWithoutApiKey, async (request: CallableRequest<{ moduleId: string }>) => {
     const { moduleId } = request.data;
     const snapshot = await db.collection("checkpointResponses")
         .where("module_id", "==", moduleId)
@@ -536,7 +544,7 @@ export const getCheckpointFailureStats = onCall(async (request: CallableRequest<
     return Object.values(stats).sort((a, b) => b.count - a.count);
 });
 
-export const getQuestionFrequency = onCall(async (request: CallableRequest<{ moduleId: string }>) => {
+export const getQuestionFrequency = onCall(optionsWithoutApiKey, async (request: CallableRequest<{ moduleId: string }>) => {
     const { moduleId } = request.data;
     if (!moduleId) throw new HttpsError("invalid-argument", "Module ID is required.");
 
@@ -558,7 +566,7 @@ export const getQuestionFrequency = onCall(async (request: CallableRequest<{ mod
 
 // --- Suggestions Service Functions ---
 
-export const submitSuggestion = onCall(async (req: CallableRequest<{ moduleId: string, stepIndex: number, text: string }>) => {
+export const submitSuggestion = onCall(optionsWithoutApiKey, async (req: CallableRequest<{ moduleId: string, stepIndex: number, text: string }>) => {
     const uid = req.auth?.uid; // Can be anonymous
     const { moduleId, stepIndex, text } = req.data;
     const ref = await db.collection("traineeSuggestions").add({
@@ -572,7 +580,7 @@ export const submitSuggestion = onCall(async (req: CallableRequest<{ moduleId: s
     return { id: ref.id, ...req.data };
 });
 
-export const deleteTraineeSuggestion = onCall(async (req: CallableRequest<{ suggestionId: string }>) => {
+export const deleteTraineeSuggestion = onCall(optionsWithoutApiKey, async (req: CallableRequest<{ suggestionId: string }>) => {
     if (!req.auth?.uid) throw new HttpsError("unauthenticated", "Authentication required.");
     await db.collection("traineeSuggestions").doc(req.data.suggestionId).delete();
     return { success: true };
@@ -580,7 +588,7 @@ export const deleteTraineeSuggestion = onCall(async (req: CallableRequest<{ sugg
 
 // --- Checkpoint Service Functions ---
 
-export const logCheckpointResponse = onCall(async (req: CallableRequest<any>) => {
+export const logCheckpointResponse = onCall(optionsWithoutApiKey, async (req: CallableRequest<any>) => {
     const { moduleId, userId, stepIndex, checkpointText, answer, comment } = req.data;
     await db.collection("checkpointResponses").add({
         module_id: moduleId,
@@ -596,7 +604,7 @@ export const logCheckpointResponse = onCall(async (req: CallableRequest<any>) =>
 
 // --- Feedback Service Functions (for Live Coach) ---
 
-export const logAiFeedback = onCall(async (req: CallableRequest<any>) => {
+export const logAiFeedback = onCall(optionsWithoutApiKey, async (req: CallableRequest<any>) => {
     const { sessionToken, moduleId, stepIndex, userPrompt, aiResponse, feedback } = req.data;
     const ref = await db.collection("feedbackLogs").add({
         sessionToken, moduleId, stepIndex, userPrompt, aiResponse, feedback,
@@ -605,7 +613,7 @@ export const logAiFeedback = onCall(async (req: CallableRequest<any>) => {
     return { logId: ref.id };
 });
 
-export const updateFeedbackWithFix = onCall(async (req: CallableRequest<{ logId: string, fixOrRating: string }>) => {
+export const updateFeedbackWithFix = onCall(optionsWithApiKey, async (req: CallableRequest<{ logId: string, fixOrRating: string }>) => {
     const { logId, fixOrRating } = req.data;
     const updateData: { feedback: "good" | "bad", userFixText?: string, fixEmbedding?: number[] } = {
         feedback: fixOrRating === "good" ? "good" : "bad",
@@ -621,7 +629,7 @@ export const updateFeedbackWithFix = onCall(async (req: CallableRequest<{ logId:
 
 // --- Routines Service Functions ---
 
-export const saveRoutine = onCall(async (req: CallableRequest<{ routine: any }>) => {
+export const saveRoutine = onCall(optionsWithoutApiKey, async (req: CallableRequest<{ routine: any }>) => {
     const uid = req.auth?.uid;
     if (!uid) throw new HttpsError("unauthenticated", "Authentication required.");
 
@@ -644,7 +652,7 @@ export const saveRoutine = onCall(async (req: CallableRequest<{ routine: any }>)
     }
 });
 
-export const getRoutineForIntent = onCall(async (req: CallableRequest<{ templateId: string, intent: string }>) => {
+export const getRoutineForIntent = onCall(optionsWithoutApiKey, async (req: CallableRequest<{ templateId: string, intent: string }>) => {
     const { templateId, intent } = req.data;
     const snap = await db.collection("routines")
         .where("templateId", "==", templateId)
@@ -658,7 +666,7 @@ export const getRoutineForIntent = onCall(async (req: CallableRequest<{ template
     return { id: doc.id, ...doc.data() };
 });
 
-export const getSignedRoutineVideoUploadUrl = onCall(async (req: CallableRequest<{ templateId: string, intent: string, contentType: string }>) => {
+export const getSignedRoutineVideoUploadUrl = onCall(optionsWithoutApiKey, async (req: CallableRequest<{ templateId: string, intent: string, contentType: string }>) => {
     const uid = req.auth?.uid;
     if (!uid) throw new HttpsError("unauthenticated", "Authentication required.");
 
@@ -677,7 +685,7 @@ export const getSignedRoutineVideoUploadUrl = onCall(async (req: CallableRequest
 });
 
 // --- Text-to-Speech Service ---
-export const generateSpeech = onCall(async (req: CallableRequest<{ text: string, voiceId: string }>) => {
+export const generateSpeech = onCall(optionsWithApiKey, async (req: CallableRequest<{ text: string, voiceId: string }>) => {
     const { text, voiceId } = req.data;
     const GOOGLE_API_KEY = process.env.API_KEY;
 
