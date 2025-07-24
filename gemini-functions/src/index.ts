@@ -12,11 +12,17 @@ admin.initializeApp();
 const db = admin.firestore();
 const storage = getStorage();
 
-// Set global options for all functions.
-setGlobalOptions({ timeoutSeconds: 60, memory: "1GiB" });
-// Note: v2 onCall functions have CORS enabled by default.
+// Set global options for all functions. This applies secrets and other configs to all functions in this file.
+setGlobalOptions({
+    timeoutSeconds: 60,
+    memory: "1GiB",
+    secrets: ["API_KEY"], // Ensure all functions can access the Gemini API key
+});
 
-const DAILY_TUTOR_LIMIT = 200;
+// --- Constants ---
+const BUCKET_NAME = "adapt-training-videos"; // Explicitly define the bucket name for all GCS operations.
+const DAILY_TUTOR_LIMIT = 100;
+
 
 // --- Helper Functions ---
 
@@ -109,6 +115,13 @@ export const saveModule = onCall(async (req: CallableRequest<{ moduleData: any }
     const { moduleData } = req.data;
     if (!moduleData?.slug) throw new HttpsError("invalid-argument", "Module data with a slug is required.");
 
+    logger.info("Attempting to save module", {
+        slug: moduleData.slug,
+        uid: uid,
+        title: moduleData.title,
+        hasVideo: !!moduleData.video_url,
+    });
+
     const moduleRef = db.collection("modules").doc(moduleData.slug);
     const doc = await moduleRef.get();
 
@@ -124,7 +137,11 @@ export const saveModule = onCall(async (req: CallableRequest<{ moduleData: any }
     };
 
     await moduleRef.set(dataToSave, { merge: true });
-    return { ...doc.data(), ...dataToSave };
+
+    logger.info("Successfully saved module", { slug: moduleData.slug, uid: uid });
+
+    const savedDoc = await moduleRef.get();
+    return savedDoc.data();
 });
 
 export const deleteModule = onCall(async (req: CallableRequest<{ slug: string }>) => {
@@ -158,7 +175,7 @@ export const deleteModule = onCall(async (req: CallableRequest<{ slug: string }>
     const videoUrl = doc.data()?.video_url;
     if (videoUrl && typeof videoUrl === "string") {
         deletionPromises.push(
-            storage.bucket().file(videoUrl).delete().catch((e: Error) =>
+            storage.bucket(BUCKET_NAME).file(videoUrl).delete().catch((e: Error) =>
                 logger.warn(`Could not delete video ${videoUrl} for module ${slug}:`, e)
             )
         );
@@ -181,7 +198,7 @@ export const getSignedUploadUrl = onCall(async (req: CallableRequest<{ slug: str
 
     const { slug, contentType, fileExtension } = req.data;
     const filePath = `videos/${uid}/${slug}.${fileExtension}`;
-    const file = storage.bucket().file(filePath);
+    const file = storage.bucket(BUCKET_NAME).file(filePath);
     const [url] = await file.getSignedUrl({
         version: "v4",
         action: "write",
@@ -200,7 +217,7 @@ export const getSignedManualUploadUrl = onCall(async (req: CallableRequest<{ fil
     const safeFileName = fileName.replace(/[^a-zA-Z0-9_.-]/g, "_");
     const filePath = `manuals_for_processing/${uid}/${Date.now()}_${safeFileName}`;
 
-    const file = storage.bucket().file(filePath);
+    const file = storage.bucket(BUCKET_NAME).file(filePath);
     const [url] = await file.getSignedUrl({
         version: "v4",
         action: "write",
@@ -216,7 +233,7 @@ export const getSignedDownloadUrl = onCall(async (req: CallableRequest<{ filePat
     const { filePath } = req.data;
     if (!filePath) throw new HttpsError("invalid-argument", "A file path is required.");
 
-    const file = storage.bucket().file(filePath);
+    const file = storage.bucket(BUCKET_NAME).file(filePath);
     const [url] = await file.getSignedUrl({
         version: "v4",
         action: "read",
@@ -293,7 +310,7 @@ interface LogTutorInteractionData {
     aliases?: DetectedAlias[];
 }
 
-export const logTutorInteraction = onCall({ secrets: ["API_KEY"] }, async (req: CallableRequest<LogTutorInteractionData>) => {
+export const logTutorInteraction = onCall(async (req: CallableRequest<LogTutorInteractionData>) => {
     const uid = req.auth?.uid;
     if (!uid) throw new HttpsError("unauthenticated", "You must be logged in.");
 
@@ -360,7 +377,7 @@ export const logTutorInteraction = onCall({ secrets: ["API_KEY"] }, async (req: 
     return { status: "logged" };
 });
 
-export const findSimilarInteractions = onCall({ secrets: ["API_KEY"] }, async (req: CallableRequest<{ question: string, moduleId: string }>) => {
+export const findSimilarInteractions = onCall(async (req: CallableRequest<{ question: string, moduleId: string }>) => {
     if (!req.auth?.uid) throw new HttpsError("unauthenticated", "Authentication required.");
     const { question, moduleId } = req.data;
     const queryVector = await generateEmbedding(question);
@@ -410,7 +427,6 @@ const refinementSchema = {
 };
 
 export const refineStep = onCall(
-    { secrets: ["API_KEY"] },
     async (request: CallableRequest<{ moduleId: string, stepIndex: number }>): Promise<{ suggestion: any }> => {
         if (!request.auth?.uid) throw new HttpsError("unauthenticated", "Authentication required.");
         const ai = getAiClient();
@@ -589,7 +605,7 @@ export const logAiFeedback = onCall(async (req: CallableRequest<any>) => {
     return { logId: ref.id };
 });
 
-export const updateFeedbackWithFix = onCall({ secrets: ["API_KEY"] }, async (req: CallableRequest<{ logId: string, fixOrRating: string }>) => {
+export const updateFeedbackWithFix = onCall(async (req: CallableRequest<{ logId: string, fixOrRating: string }>) => {
     const { logId, fixOrRating } = req.data;
     const updateData: { feedback: "good" | "bad", userFixText?: string, fixEmbedding?: number[] } = {
         feedback: fixOrRating === "good" ? "good" : "bad",
@@ -648,7 +664,7 @@ export const getSignedRoutineVideoUploadUrl = onCall(async (req: CallableRequest
 
     const { templateId, intent, contentType } = req.data;
     const filePath = `routines_videos/${uid}/${templateId}_${intent}_${Date.now()}`;
-    const file = storage.bucket().file(filePath);
+    const file = storage.bucket(BUCKET_NAME).file(filePath);
 
     const [url] = await file.getSignedUrl({
         version: "v4",
@@ -661,7 +677,7 @@ export const getSignedRoutineVideoUploadUrl = onCall(async (req: CallableRequest
 });
 
 // --- Text-to-Speech Service ---
-export const generateSpeech = onCall({ secrets: ["API_KEY"] }, async (req: CallableRequest<{ text: string, voiceId: string }>) => {
+export const generateSpeech = onCall(async (req: CallableRequest<{ text: string, voiceId: string }>) => {
     const { text, voiceId } = req.data;
     const GOOGLE_API_KEY = process.env.API_KEY;
 

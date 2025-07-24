@@ -318,7 +318,7 @@ function getChatTutorSystemInstruction(stepsContext: string, fullTranscript?: st
         if (templateContext.ai_context_notes) {
             baseInstruction += `${templateContext.ai_context_notes}\n`;
         }
-        if (templateContext.buttons?.length > 0) {
+        if (templateContext.buttons && templateContext.buttons.length > 0) {
             baseInstruction += "Use this button glossary when referring to controls:\n";
             templateContext.buttons.forEach((btn: { name: string, symbol: string, function: string }) => {
                 baseInstruction += `- ${btn.name} (${btn.symbol || 'text label'}): ${btn.function}\n`;
