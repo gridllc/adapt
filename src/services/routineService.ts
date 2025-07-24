@@ -1,23 +1,22 @@
 import { functions } from '@/firebase';
-import type firebase from 'firebase/compat/app';
-import 'firebase/compat/functions';
+import { httpsCallable } from 'firebase/functions';
 import type { Routine } from '@/types';
 
-const getRoutinesForTemplateFn = functions.httpsCallable('getRoutinesForTemplate');
-const saveRoutineFn = functions.httpsCallable('saveRoutine');
-const deleteRoutineFn = functions.httpsCallable('deleteRoutine');
-const getSignedRoutineVideoUploadUrlFn = functions.httpsCallable('getSignedRoutineVideoUploadUrl');
-const getRoutineForIntentFn = functions.httpsCallable('getRoutineForIntent');
+const getRoutinesForTemplateFn = httpsCallable<{ templateId: string }, Routine[]>(functions, 'getRoutinesForTemplate');
+const saveRoutineFn = httpsCallable<{ routineData: Omit<Routine, 'id'> & { id?: string; videoUrl: string | null } }, Routine>(functions, 'saveRoutine');
+const deleteRoutineFn = httpsCallable<{ routineId: string }, void>(functions, 'deleteRoutine');
+const getSignedRoutineVideoUploadUrlFn = httpsCallable<{ routineId: string, contentType: string }, { uploadUrl: string, filePath: string }>(functions, 'getSignedRoutineVideoUploadUrl');
+const getRoutineForIntentFn = httpsCallable<{ templateId: string, intent: string }, Routine | null>(functions, 'getRoutineForIntent');
 
 export const getRoutinesForTemplate = async (templateId: string): Promise<Routine[]> => {
-    const result: firebase.functions.HttpsCallableResult = await getRoutinesForTemplateFn({ templateId });
-    return result.data as Routine[];
+    const result = await getRoutinesForTemplateFn({ templateId });
+    return result.data;
 };
 
 export const getRoutineForIntent = async (templateId: string, intent: string): Promise<Routine | null> => {
     try {
-        const result: firebase.functions.HttpsCallableResult = await getRoutineForIntentFn({ templateId, intent });
-        return result.data as Routine | null;
+        const result = await getRoutineForIntentFn({ templateId, intent });
+        return result.data;
     } catch (error) {
         console.warn(`Could not find routine for intent '${intent}' in template '${templateId}'.`, error);
         return null;
@@ -29,11 +28,11 @@ export const saveRoutine = async (routine: Omit<Routine, 'id'> & { id?: string }
 
     if (videoFile) {
         try {
-            const result: firebase.functions.HttpsCallableResult = await getSignedRoutineVideoUploadUrlFn({
+            const result = await getSignedRoutineVideoUploadUrlFn({
                 routineId: routine.id || `${routine.templateId}-${routine.intent}`, // Create a unique path component
                 contentType: videoFile.type,
             });
-            const { uploadUrl, filePath } = result.data as { uploadUrl: string, filePath: string };
+            const { uploadUrl, filePath } = result.data;
 
             const uploadResponse = await fetch(uploadUrl, {
                 method: 'PUT',
@@ -58,8 +57,8 @@ export const saveRoutine = async (routine: Omit<Routine, 'id'> & { id?: string }
         videoUrl: videoUrlPath,
     };
 
-    const result: firebase.functions.HttpsCallableResult = await saveRoutineFn({ routineData: routineToSave });
-    return result.data as Routine;
+    const result = await saveRoutineFn({ routineData: routineToSave });
+    return result.data;
 };
 
 export const deleteRoutine = async (routineId: string): Promise<void> => {

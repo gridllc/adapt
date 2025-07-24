@@ -1,9 +1,9 @@
 // src/firebase.ts
-import firebase from 'firebase/compat/app';
-import 'firebase/compat/auth';
-import 'firebase/compat/firestore';
-import 'firebase/compat/functions';
-import 'firebase/compat/storage';
+import { initializeApp, getApp, FirebaseApp } from 'firebase/app';
+import { getAuth } from 'firebase/auth';
+import { getFirestore } from 'firebase/firestore';
+import { getFunctions } from 'firebase/functions';
+import { getStorage } from 'firebase/storage';
 
 
 // Securely load Firebase config from environment variables
@@ -18,11 +18,17 @@ const firebaseConfig = {
 };
 
 // Initialize Firebase
-export const firebaseApp = firebase.initializeApp(firebaseConfig);
+let firebaseApp: FirebaseApp;
+try {
+  firebaseApp = getApp();
+} catch (e) {
+  firebaseApp = initializeApp(firebaseConfig);
+}
+
 
 // Initialize and export Firebase services
-export const auth = firebase.auth();
-export const db = firebase.firestore();
-export const storage = firebase.storage();
+export const auth = getAuth(firebaseApp);
+export const db = getFirestore(firebaseApp);
+export const storage = getStorage(firebaseApp);
 // Initialize Functions for a specific region for consistency with the backend
-export const functions = firebaseApp.functions('us-central1');
+export const functions = getFunctions(firebaseApp, 'us-central1');

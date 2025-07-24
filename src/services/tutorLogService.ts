@@ -3,6 +3,7 @@
 // with the database and Vertex AI Matching Engine.
 
 import { functions } from '@/firebase';
+import { httpsCallable } from 'firebase/functions';
 import type { TutorLog } from '@/types';
 import type { DetectedAlias } from '@/utils/aliasService';
 
@@ -18,8 +19,8 @@ interface TutorLogPayload {
 }
 
 // --- Callable Firebase Functions ---
-const logTutorInteractionFn = functions.httpsCallable('logTutorInteraction');
-const findSimilarInteractionsFn = functions.httpsCallable('findSimilarInteractions');
+const logTutorInteractionFn = httpsCallable<TutorLogPayload, void>(functions, 'logTutorInteraction');
+const findSimilarInteractionsFn = httpsCallable<{ moduleId: string, question: string }, TutorLog[]>(functions, 'findSimilarInteractions');
 
 
 /**
@@ -50,7 +51,7 @@ export const findSimilarInteractions = async (
     try {
         const result = await findSimilarInteractionsFn({ moduleId, question });
         // The callable function result is in `result.data`.
-        return result.data as TutorLog[];
+        return result.data;
     } catch (error) {
         console.error("[Firebase] Failed to find similar interactions:", error);
         // Return an empty array on failure to prevent the chat from crashing.

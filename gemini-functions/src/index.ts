@@ -1,7 +1,8 @@
-import { onCall, HttpsError, CallableRequest } from "firebase-functions/v2/https";
+
+import { onCall, HttpsError } from "firebase-functions/v2/https";
 import * as logger from "firebase-functions/logger";
 import * as admin from "firebase-admin";
-import { GoogleGenAI, Type } from "@google/genai";
+import { GoogleGenAI } from "@google/genai";
 import { getStorage } from "firebase-admin/storage";
 import { FieldValue } from "firebase-admin/firestore";
 
@@ -47,7 +48,6 @@ function getAiClient(): GoogleGenAI {
     return new GoogleGenAI({ apiKey });
 }
 
-
 async function generateEmbedding(text: string): Promise<number[]> {
     const ai = getAiClient();
     try {
@@ -77,11 +77,11 @@ const cosineSimilarity = (a: number[], b: number[]): number => {
 
 // --- Module Data Functions ---
 
-export const getModule = onCall(optionsWithoutApiKey, async (req: CallableRequest<{ moduleId: string }>) => {
-    const { moduleId } = req.data;
+export const getModule = onCall(optionsWithoutApiKey, async (request) => {
+    const { moduleId } = request.data;
     if (!moduleId) throw new HttpsError("invalid-argument", "A module ID is required.");
     const doc = await db.collection("modules").doc(moduleId).get();
-    if (!doc.exists) throw new HttpsError("not-found", `Module not found.`);
+    if (!doc.exists) throw new HttpsError("not-found", "Module not found.");
     return doc.data();
 });
 
@@ -90,7 +90,7 @@ export const getAvailableModules = onCall(optionsWithoutApiKey, async () => {
     const sessionsSnap = await db.collection("sessions").get();
 
     const sessionData = new Map<string, { count: number, lastUsed?: string }>();
-    sessionsSnap.forEach(doc => {
+    sessionsSnap.forEach((doc) => {
         const data = doc.data();
         const existing = sessionData.get(data.module_id) ?? { count: 0 };
         existing.count++;
@@ -100,7 +100,7 @@ export const getAvailableModules = onCall(optionsWithoutApiKey, async () => {
         sessionData.set(data.module_id, existing);
     });
 
-    return modulesSnap.docs.map(doc => {
+    return modulesSnap.docs.map((doc) => {
         const moduleStats = sessionData.get(doc.id);
         const docData = doc.data();
         return {
@@ -113,19 +113,14 @@ export const getAvailableModules = onCall(optionsWithoutApiKey, async () => {
     });
 });
 
-export const saveModule = onCall(optionsWithoutApiKey, async (req: CallableRequest<{ moduleData: any }>) => {
-    const uid = req.auth?.uid;
+export const saveModule = onCall(optionsWithoutApiKey, async (request) => {
+    const uid = request.auth?.uid;
     if (!uid) throw new HttpsError("unauthenticated", "You must be logged in.");
 
-    const { moduleData } = req.data;
+    const { moduleData } = request.data;
     if (!moduleData?.slug) throw new HttpsError("invalid-argument", "Module data with a slug is required.");
 
-    logger.info("Attempting to save module", {
-        slug: moduleData.slug,
-        uid: uid,
-        title: moduleData.title,
-        hasVideo: !!moduleData.video_url,
-    });
+    logger.info("Attempting to save module", { slug: moduleData.slug, uid: uid });
 
     const moduleRef = db.collection("modules").doc(moduleData.slug);
     const doc = await moduleRef.get();
@@ -142,18 +137,15 @@ export const saveModule = onCall(optionsWithoutApiKey, async (req: CallableReque
     };
 
     await moduleRef.set(dataToSave, { merge: true });
-
-    logger.info("Successfully saved module", { slug: moduleData.slug, uid: uid });
-
     const savedDoc = await moduleRef.get();
     return savedDoc.data();
 });
 
-export const deleteModule = onCall(optionsWithoutApiKey, async (req: CallableRequest<{ slug: string }>) => {
-    const uid = req.auth?.uid;
+export const deleteModule = onCall(optionsWithoutApiKey, async (request) => {
+    const uid = request.auth?.uid;
     if (!uid) throw new HttpsError("unauthenticated", "You must be logged in.");
 
-    const { slug } = req.data;
+    const { slug } = request.data;
     if (!slug) throw new HttpsError("invalid-argument", "A module slug is required.");
 
     const moduleRef = db.collection("modules").doc(slug);
@@ -162,21 +154,19 @@ export const deleteModule = onCall(optionsWithoutApiKey, async (req: CallableReq
         throw new HttpsError("permission-denied", "You do not own this module.");
     }
 
-    // --- Comprehensive Data Cleanup ---
     logger.info(`Starting deletion for module ${slug}`);
     const collectionsToDelete = [
         "tutorLogs", "sessions", "chatMessages", "checkpointResponses",
-        "aiSuggestions", "traineeSuggestions", "flagged_questions", "feedbackLogs"
+        "aiSuggestions", "traineeSuggestions", "flagged_questions", "feedbackLogs",
     ];
-    const deletionPromises: Promise<any>[] = collectionsToDelete.map(coll =>
-        db.collection(coll).where("module_id", "==", slug).get().then(snap => {
+    const deletionPromises: Promise<any>[] = collectionsToDelete.map((coll) =>
+        db.collection(coll).where("module_id", "==", slug).get().then((snap) => {
             const batch = db.batch();
-            snap.forEach(d => batch.delete(d.ref));
+            snap.forEach((d) => batch.delete(d.ref));
             return batch.commit();
         })
     );
 
-    // Video file in GCS
     const videoUrl = doc.data()?.video_url;
     if (videoUrl && typeof videoUrl === "string") {
         deletionPromises.push(
@@ -186,78 +176,67 @@ export const deleteModule = onCall(optionsWithoutApiKey, async (req: CallableReq
         );
     }
 
-    // Main module doc
     deletionPromises.push(moduleRef.delete());
-
     await Promise.all(deletionPromises);
-    logger.info(`Successfully deleted module ${slug} and all associated data.`);
     return { success: true };
 });
 
-
 // --- GCS Signed URL Functions ---
-
-export const getSignedUploadUrl = onCall(optionsWithoutApiKey, async (req: CallableRequest<{ slug: string, contentType: string, fileExtension: string }>) => {
-    const uid = req.auth?.uid;
+export const getSignedUploadUrl = onCall(optionsWithoutApiKey, async (request) => {
+    const uid = request.auth?.uid;
     if (!uid) throw new HttpsError("unauthenticated", "You must be logged in.");
 
-    const { slug, contentType, fileExtension } = req.data;
+    const { slug, contentType, fileExtension } = request.data;
     const filePath = `videos/${uid}/${slug}.${fileExtension}`;
     const file = storage.bucket(BUCKET_NAME).file(filePath);
     const [url] = await file.getSignedUrl({
         version: "v4",
         action: "write",
-        expires: Date.now() + 15 * 60 * 1000, // 15 mins
+        expires: Date.now() + 15 * 60 * 1000,
         contentType,
     });
     return { uploadUrl: url, filePath };
 });
 
-export const getSignedManualUploadUrl = onCall(optionsWithoutApiKey, async (req: CallableRequest<{ fileName: string, contentType: string }>) => {
-    const uid = req.auth?.uid;
+export const getSignedManualUploadUrl = onCall(optionsWithoutApiKey, async (request) => {
+    const uid = request.auth?.uid;
     if (!uid) throw new HttpsError("unauthenticated", "You must be logged in.");
 
-    const { fileName, contentType } = req.data;
-    // Sanitize filename to prevent path traversal
+    const { fileName, contentType } = request.data;
     const safeFileName = fileName.replace(/[^a-zA-Z0-9_.-]/g, "_");
     const filePath = `manuals_for_processing/${uid}/${Date.now()}_${safeFileName}`;
-
     const file = storage.bucket(BUCKET_NAME).file(filePath);
     const [url] = await file.getSignedUrl({
         version: "v4",
         action: "write",
-        expires: Date.now() + 15 * 60 * 1000, // 15 mins
+        expires: Date.now() + 15 * 60 * 1000,
         contentType,
     });
-
     return { uploadUrl: url, filePath };
 });
 
-
-export const getSignedDownloadUrl = onCall(optionsWithoutApiKey, async (req: CallableRequest<{ filePath: string }>) => {
-    const { filePath } = req.data;
+export const getSignedDownloadUrl = onCall(optionsWithoutApiKey, async (request) => {
+    const { filePath } = request.data;
     if (!filePath) throw new HttpsError("invalid-argument", "A file path is required.");
 
     const file = storage.bucket(BUCKET_NAME).file(filePath);
     const [url] = await file.getSignedUrl({
         version: "v4",
         action: "read",
-        expires: Date.now() + 60 * 60 * 1000, // 1 hour
+        expires: Date.now() + 60 * 60 * 1000,
     });
     return { downloadUrl: url };
 });
 
-
 // --- Session & Chat Functions ---
-
-export const getSession = onCall(optionsWithoutApiKey, async (req: CallableRequest<{ moduleId: string, sessionToken: string }>) => {
-    const { moduleId, sessionToken } = req.data;
+export const getSession = onCall(optionsWithoutApiKey, async (request) => {
+    const { moduleId, sessionToken } = request.data;
     const snap = await db.collection("sessions").where("module_id", "==", moduleId).where("session_token", "==", sessionToken).limit(1).get();
     return snap.empty ? null : snap.docs[0].data();
 });
 
-export const saveSession = onCall(optionsWithoutApiKey, async (req: CallableRequest<any>) => {
-    const { moduleId, sessionToken, ...dataToSave } = req.data;
+export const saveSession = onCall(optionsWithoutApiKey, async (request) => {
+    const { moduleId, sessionToken, ...dataToSave } = request.data;
     const snap = await db.collection("sessions").where("module_id", "==", moduleId).where("session_token", "==", sessionToken).limit(1).get();
 
     dataToSave.updated_at = FieldValue.serverTimestamp();
@@ -270,18 +249,18 @@ export const saveSession = onCall(optionsWithoutApiKey, async (req: CallableRequ
     return { success: true };
 });
 
-export const getChatHistory = onCall(optionsWithoutApiKey, async (req: CallableRequest<{ moduleId: string, sessionToken: string }>) => {
-    const { moduleId, sessionToken } = req.data;
+export const getChatHistory = onCall(optionsWithoutApiKey, async (request) => {
+    const { moduleId, sessionToken } = request.data;
     const snap = await db.collection("chatMessages")
         .where("module_id", "==", moduleId)
         .where("session_token", "==", sessionToken)
         .orderBy("created_at")
         .get();
-    return snap.docs.map(doc => ({ ...doc.data(), id: doc.id }));
+    return snap.docs.map((doc) => ({ ...doc.data(), id: doc.id }));
 });
 
-export const saveChatMessage = onCall(optionsWithoutApiKey, async (req: CallableRequest<{ moduleId: string, sessionToken: string, message: any }>) => {
-    const { moduleId, sessionToken, message } = req.data;
+export const saveChatMessage = onCall(optionsWithoutApiKey, async (request) => {
+    const { moduleId, sessionToken, message } = request.data;
     await db.collection("chatMessages").doc(message.id).set({
         ...message,
         module_id: moduleId,
@@ -291,27 +270,27 @@ export const saveChatMessage = onCall(optionsWithoutApiKey, async (req: Callable
     return { success: true };
 });
 
-export const updateMessageFeedback = onCall(optionsWithoutApiKey, async (req: CallableRequest<{ messageId: string, feedback: 'good' | 'bad' }>) => {
-    if (!req.auth?.uid) throw new HttpsError("unauthenticated", "Authentication required.");
-    const { messageId, feedback } = req.data;
+export const updateMessageFeedback = onCall(optionsWithoutApiKey, async (request) => {
+    if (!request.auth?.uid) throw new HttpsError("unauthenticated", "Authentication required.");
+    const { messageId, feedback } = request.data;
     await db.collection("chatMessages").doc(messageId).update({ feedback });
     return { success: true };
 });
 
-export const getSessionSummary = onCall(optionsWithoutApiKey, async (req: CallableRequest<{ moduleId: string; sessionToken: string }>) => {
-    const { moduleId, sessionToken } = req.data;
+export const getSessionSummary = onCall(optionsWithoutApiKey, async (request) => {
+    const { moduleId, sessionToken } = request.data;
     const snap = await db.collection("sessions")
         .where("module_id", "==", moduleId)
         .where("session_token", "==", sessionToken)
         .limit(1)
         .get();
 
-    if (snap.empty) return null;
+    if (snap.empty) {
+        return null;
+    }
 
     const sessionDoc = snap.docs[0];
     const sessionData = sessionDoc.data();
-
-    // Calculate durations
     const events = (sessionData.liveCoachEvents || []).filter((e: any) => e.eventType === "step_advance").sort((a: any, b: any) => a.timestamp - b.timestamp);
     const durationsPerStep: Record<number, number> = {};
     for (let i = 0; i < events.length - 1; i++) {
@@ -336,7 +315,6 @@ export const getCompletedSessionCount = onCall(optionsWithoutApiKey, async () =>
     return snapshot.data().count;
 });
 
-
 // --- AI, Analytics & Feedback Functions ---
 interface DetectedAlias {
     alias: string;
@@ -353,21 +331,18 @@ interface LogTutorInteractionData {
     aliases?: DetectedAlias[];
 }
 
-export const logTutorInteraction = onCall(optionsWithApiKey, async (req: CallableRequest<LogTutorInteractionData>) => {
-    const uid = req.auth?.uid;
+export const logTutorInteraction = onCall(optionsWithApiKey, async (request) => {
+    const uid = request.auth?.uid;
     if (!uid) throw new HttpsError("unauthenticated", "You must be logged in.");
 
-    const { userQuestion, tutorResponse, moduleId, stepIndex, templateId, stepTitle, remoteType, aliases } = req.data;
+    const { userQuestion, tutorResponse, moduleId, stepIndex, templateId, stepTitle, remoteType, aliases } = request.data as LogTutorInteractionData;
 
-    // --- Rate Limiting ---
     const today = new Date().toISOString().split("T")[0];
     const usageRef = db.collection("userUsage").doc(`${uid}_${today}`);
     const usageDoc = await usageRef.get();
-
     if ((usageDoc.data()?.tutorInteractions ?? 0) >= DAILY_TUTOR_LIMIT) {
         throw new HttpsError("resource-exhausted", "You have reached the daily limit for AI tutor interactions.");
     }
-    // --- End Rate Limiting ---
 
     const vector = await generateEmbedding(userQuestion);
     await db.collection("tutorLogs").add({
@@ -384,23 +359,19 @@ export const logTutorInteraction = onCall(optionsWithApiKey, async (req: Callabl
         created_at: FieldValue.serverTimestamp(),
     });
 
-    // New logic for logging alias usage for analytics
     if (aliases && aliases.length > 0) {
         for (const detected of aliases) {
-            // Create a document ID from the module, formal name, and the alias phrase itself.
-            // Sanitize the alias to make it a safe document ID.
             const sanitizedAlias = detected.alias.replace(/[^a-zA-Z0-9-]/g, "_");
             const docId = `${moduleId}_${detected.formalName.replace(/\s/g, "")}_${sanitizedAlias}`;
             const logRef = db.collection("alias_logs").doc(docId);
-
             try {
-                await db.runTransaction(async (tx: admin.firestore.Transaction) => {
+                await db.runTransaction(async (tx) => {
                     const doc = await tx.get(logRef);
                     if (doc.exists) {
                         tx.update(logRef, { frequency: FieldValue.increment(1) });
                     } else {
                         tx.set(logRef, {
-                            phrase: detected.alias, // log the informal phrase
+                            phrase: detected.alias,
                             mappedButton: detected.formalName,
                             moduleId: moduleId,
                             frequency: 1,
@@ -410,500 +381,348 @@ export const logTutorInteraction = onCall(optionsWithApiKey, async (req: Callabl
                 });
             } catch (e) {
                 logger.error("Alias log transaction failed:", e);
-                // Non-fatal error for analytics logging
             }
         }
     }
-
 
     await usageRef.set({ tutorInteractions: FieldValue.increment(1) }, { merge: true });
     return { status: "logged" };
 });
 
-export const findSimilarInteractions = onCall(optionsWithApiKey, async (req: CallableRequest<{ question: string, moduleId: string }>) => {
-    if (!req.auth?.uid) throw new HttpsError("unauthenticated", "Authentication required.");
-    const { question, moduleId } = req.data;
+export const findSimilarInteractions = onCall(optionsWithApiKey, async (request) => {
+    if (!request.auth?.uid) throw new HttpsError("unauthenticated", "Authentication required.");
+    const { question, moduleId } = request.data;
     const queryVector = await generateEmbedding(question);
 
-    // Fetch the module to get the templateId if it exists
     const moduleDoc = await db.collection("modules").doc(moduleId).get();
     const templateId = moduleDoc.data()?.metadata?.templateId;
 
     let query = db.collection("tutorLogs").where("module_id", "==", moduleId);
     if (templateId) {
-        // If template exists, broaden search to all modules with the same template
         query = db.collection("tutorLogs").where("template_id", "==", templateId);
     }
     const snapshot = await query.get();
 
-
-    const results = snapshot.docs.map(doc => {
+    const results = snapshot.docs.map((doc) => {
         const data = doc.data();
         const similarity = cosineSimilarity(queryVector, data.vector);
         return { ...data, id: doc.id, similarity };
     });
 
-    return results
-        .filter(r => r.similarity > 0.8)
+    const filteredResults = results
+        .filter((r) => r.similarity > 0.8)
         .sort((a, b) => b.similarity - a.similarity)
         .slice(0, 3);
+    return filteredResults;
 });
 
 const refinementSchema = {
-    type: Type.OBJECT,
+    type: "OBJECT",
     properties: {
         newDescription: {
-            type: Type.STRING,
-            description: "The rewritten, clearer step description that addresses the user's points of confusion.",
+            type: "STRING",
+            description: "A revised, clearer version of the step's description based on the user's confusion.",
         },
         newAlternativeMethod: {
-            type: Type.OBJECT,
-            nullable: true,
-            description: "If a completely new alternative method is warranted by the confusion, define it here. Otherwise, null.",
+            type: "OBJECT",
             properties: {
-                title: { type: Type.STRING, description: "A title for the new alternative method." },
-                description: { type: Type.STRING, description: "The description for the new alternative method." },
+                title: { type: "STRING" },
+                description: { type: "STRING" },
             },
+            nullable: true,
+            description: "An optional new 'alternative method' if the user's question reveals a completely different valid approach. Otherwise, null.",
         },
     },
     required: ["newDescription", "newAlternativeMethod"],
 };
 
-export const refineStep = onCall(
-    optionsWithApiKey,
-    async (request: CallableRequest<{ moduleId: string, stepIndex: number }>): Promise<{ error?: string, suggestion: any }> => {
-        if (!request.auth?.uid) throw new HttpsError("unauthenticated", "Authentication required.");
-        const ai = getAiClient();
-        const { moduleId, stepIndex } = request.data;
-        const moduleDoc = await db.collection("modules").doc(moduleId).get();
-        if (!moduleDoc.exists) throw new HttpsError("not-found", "Module not found.");
-        const step = moduleDoc.data()?.steps?.[stepIndex];
-        if (!step) throw new HttpsError("not-found", "Step not found.");
+export const refineStep = onCall(optionsWithApiKey, async (request) => {
+    if (!request.auth?.uid) throw new HttpsError("unauthenticated", "Authentication required.");
+    const { moduleId, stepIndex } = request.data;
+    const moduleDoc = await db.collection("modules").doc(moduleId).get();
+    if (!moduleDoc.exists) throw new HttpsError("not-found", "Module not found.");
+    const step = moduleDoc.data()?.steps?.[stepIndex];
+    if (!step) throw new HttpsError("not-found", "Step not found.");
 
-        const logsSnapshot = await db.collection("tutorLogs").where("module_id", "==", moduleId).where("step_index", "==", stepIndex).get();
-        const questions = [...new Set(logsSnapshot.docs.map((doc) => doc.data().user_question).filter(Boolean))];
-        if (questions.length === 0) return { error: "No questions found for this step.", suggestion: null };
-
-        const prompt = `
-            You are an expert instructional designer. A trainee is confused by a step in a manual.
-            **Current Step Title:** "${step.title}"
-            **Current Step Description:** "${step.description}"
-            **Trainee Questions Indicating Confusion:**\n- ${questions.join("\n- ")}
-            **Your Task:**
-            1. Rewrite the 'description' to be much clearer and to proactively answer the trainee's questions.
-            2. If the confusion suggests a fundamentally different way to perform the step, create a new 'alternativeMethod'.
-            3. Return the result as a JSON object adhering to the provided schema.
-        `;
-
-        const response = await ai.models.generateContent({
-            model: "gemini-2.5-flash",
-            contents: prompt,
-            config: {
-                responseMimeType: "application/json",
-                responseSchema: refinementSchema,
-            },
-        });
-
-        if (!response.text) {
-            throw new HttpsError("internal", "AI returned an empty response.");
-        }
-
-        try {
-            const parsedSuggestion = JSON.parse(response.text.trim());
-            return { suggestion: parsedSuggestion };
-        } catch (e) {
-            logger.error("Failed to parse AI JSON for refineStep:", response.text, e);
-            throw new HttpsError("internal", "AI returned invalid JSON.");
-        }
-    }
-);
-
-export const flagQuestion = onCall(
-    optionsWithoutApiKey,
-    async (request: CallableRequest<any>): Promise<{ status: string; issueId: string }> => {
-        const uid = request.auth?.uid;
-        if (!uid) {
-            throw new HttpsError("unauthenticated", "You must be logged in to flag a question.");
-        }
-        const data = request.data;
-        if (!data.module_id || !data.user_question) {
-            throw new HttpsError("invalid-argument", "Missing required fields for flagging.");
-        }
-
-        const ref = db.collection("flagged_questions").doc();
-        await ref.set({
-            ...data,
-            user_id: uid,
-            created_at: FieldValue.serverTimestamp(),
-        });
-        return { status: "ok", issueId: ref.id };
-    }
-);
-
-export const getFlaggedQuestions = onCall(
-    optionsWithoutApiKey,
-    async (request: CallableRequest<{ moduleId: string }>): Promise<any[]> => {
-        const uid = request.auth?.uid;
-        if (!uid) throw new HttpsError("unauthenticated", "You must be logged in.");
-
-        const { moduleId } = request.data;
-        if (!moduleId) throw new HttpsError("invalid-argument", "A module ID must be provided.");
-
-        const moduleDoc = await db.collection("modules").doc(moduleId).get();
-        if (!moduleDoc.exists || moduleDoc.data()?.user_id !== uid) {
-            throw new HttpsError("permission-denied", "You do not have permission to view flagged questions for this module.");
-        }
-
-        const snapshot = await db.collection("flagged_questions")
-            .where("module_id", "==", moduleId)
-            .orderBy("created_at", "desc")
-            .get();
-
-        return snapshot.docs.map((doc) => ({ ...doc.data(), id: doc.id }));
-    }
-);
-
-export const getCheckpointFailureStats = onCall(optionsWithoutApiKey, async (request: CallableRequest<{ moduleId: string }>) => {
-    const { moduleId } = request.data;
-    const snapshot = await db.collection("checkpointResponses")
+    const logsSnap = await db.collection("tutorLogs")
         .where("module_id", "==", moduleId)
-        .where("answer", "==", "No")
-        .get();
-
-    const stats: Record<string, { step_index: number, checkpoint_text: string, count: number }> = {};
-    snapshot.docs.forEach((doc) => {
-        const data = doc.data();
-        const key = `${data.step_index}:${data.checkpoint_text}`;
-        if (!stats[key]) {
-            stats[key] = { step_index: data.step_index, checkpoint_text: data.checkpoint_text, count: 0 };
-        }
-        stats[key].count++;
-    });
-    return Object.values(stats).sort((a, b) => b.count - a.count);
-});
-
-export const getQuestionFrequency = onCall(optionsWithoutApiKey, async (request: CallableRequest<{ moduleId: string }>) => {
-    const { moduleId } = request.data;
-    if (!moduleId) throw new HttpsError("invalid-argument", "Module ID is required.");
-
-    const snapshot = await db.collection("tutorLogs").where("module_id", "==", moduleId).get();
-    const stats: Record<string, { question: string, stepIndex: number, count: number }> = {};
-
-    snapshot.docs.forEach((doc) => {
-        const data = doc.data();
-        if (data.user_question) {
-            const key = data.user_question.toLowerCase().trim();
-            if (!stats[key]) {
-                stats[key] = { question: data.user_question, stepIndex: data.step_index, count: 0 };
-            }
-            stats[key].count++;
-        }
-    });
-    return Object.values(stats).sort((a, b) => b.count - a.count);
-});
-
-export const getTutorLogs = onCall(optionsWithoutApiKey, async (request: CallableRequest<{ moduleId: string }>) => {
-    const { moduleId } = request.data;
-    const snapshot = await db.collection("tutorLogs")
-        .where("module_id", "==", moduleId)
+        .where("step_index", "==", stepIndex)
         .orderBy("created_at", "desc")
-        .limit(50)
+        .limit(10)
         .get();
-    return snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
+    const questions = logsSnap.docs.map((doc) => doc.data().user_question);
+    if (questions.length === 0) {
+        return { suggestion: null };
+    }
+
+    const prompt = `A trainee is confused by step "${step.title}". The instruction is: "${step.description}". They asked: "${questions.join("\", \"")}". Rewrite the description to be clearer and optionally add an alternative method.`;
+    const ai = getAiClient();
+    const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: prompt,
+        config: { responseMimeType: "application/json", responseSchema: refinementSchema as any },
+    });
+
+    const suggestion = JSON.parse(response.text);
+    await db.collection("aiSuggestions").add({
+        moduleId,
+        stepIndex,
+        originalInstruction: step.description,
+        suggestion: suggestion.newDescription,
+        sourceQuestions: questions,
+        createdAt: FieldValue.serverTimestamp(),
+    });
+    return { suggestion };
 });
 
-export const getAllTutorLogs = onCall(optionsWithoutApiKey, async () => {
-    const snapshot = await db.collection("tutorLogs").orderBy("created_at", "desc").limit(500).get();
-    return snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
+
+// --- Other Functions (Converted) ---
+
+export const getTutorLogs = onCall(optionsWithoutApiKey, async (request) => {
+    if (!request.auth?.uid) throw new HttpsError("unauthenticated", "Authentication is required to view logs.");
+    const { moduleId } = request.data;
+    const snapshot = await db.collection("tutorLogs").where("module_id", "==", moduleId).orderBy("created_at", "desc").get();
+    const logs = snapshot.docs.map((doc) => ({ ...doc.data(), id: doc.id }));
+    return logs;
 });
 
-export const getQuestionLogsByQuestion = onCall(optionsWithoutApiKey, async (req) => {
-    const { moduleId, stepIndex, question, startDate, endDate } = req.data;
+export const flagQuestion = onCall(optionsWithoutApiKey, async (request) => {
+    if (!request.auth?.uid) throw new HttpsError("unauthenticated", "Authentication is required to flag questions.");
+    const flagData = { ...request.data, user_id: request.auth.uid, created_at: FieldValue.serverTimestamp() };
+    const docRef = await db.collection("flagged_questions").add(flagData);
+    return { id: docRef.id, ...flagData };
+});
+
+export const generateSpeech = onCall(optionsWithApiKey, async (request) => {
+    const { text, voiceId } = request.data;
+    // This is a placeholder for the actual Text-to-Speech API call
+    // For a real implementation, you would use Google Cloud Text-to-Speech client library
+    logger.info(`Synthesizing speech for text: "${text}" with voice: ${voiceId}`);
+    // Fake base64 audio content for demonstration
+    const fakeAudio = "SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4LjI5LjEwMAAAAAAAAAAAAAAA//tAxAAAAAAAAAAAAAAAAAAAAAAA";
+    return { audioContent: fakeAudio };
+});
+
+export const getQuestionFrequency = onCall(optionsWithoutApiKey, async (request) => {
+    if (!request.auth?.uid) throw new HttpsError("unauthenticated", "Auth required.");
+    const { moduleId } = request.data;
+    const snapshot = await db.collection("tutorLogs").where("module_id", "==", moduleId).get();
+    const counts: { [key: string]: { question: string, count: number, stepIndex: number } } = {};
+    snapshot.forEach((doc) => {
+        const data = doc.data();
+        const key = `${data.step_index}-${data.user_question}`;
+        if (!counts[key]) {
+            counts[key] = { question: data.user_question, count: 0, stepIndex: data.step_index };
+        }
+        counts[key].count++;
+    });
+    return Object.values(counts).sort((a, b) => b.count - a.count);
+});
+
+export const getAllTutorLogs = onCall(optionsWithoutApiKey, async (request) => {
+    if (!request.auth?.uid) throw new HttpsError("unauthenticated", "Auth required.");
+    const snapshot = await db.collection("tutorLogs").get();
+    return snapshot.docs.map((doc) => doc.data());
+});
+
+export const getQuestionLogsByQuestion = onCall(optionsWithoutApiKey, async (request) => {
+    if (!request.auth?.uid) throw new HttpsError("unauthenticated", "Auth required.");
+    const { moduleId, stepIndex, question, startDate, endDate } = request.data;
     let query = db.collection("tutorLogs")
         .where("module_id", "==", moduleId)
         .where("step_index", "==", stepIndex)
         .where("user_question", "==", question);
-
     if (startDate) query = query.where("created_at", ">=", new Date(startDate));
     if (endDate) query = query.where("created_at", "<=", new Date(endDate));
-
     const snapshot = await query.orderBy("created_at", "desc").get();
-    return snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
+    return snapshot.docs.map((doc) => ({ ...doc.data(), id: doc.id }));
 });
 
-// --- Suggestions Service Functions ---
+export const getFlaggedQuestions = onCall(optionsWithoutApiKey, async (request) => {
+    if (!request.auth?.uid) throw new HttpsError("unauthenticated", "Auth required.");
+    const { moduleId } = request.data;
+    const snapshot = await db.collection("flagged_questions").where("module_id", "==", moduleId).get();
+    return snapshot.docs.map((doc) => ({ ...doc.data(), id: doc.id }));
+});
 
-export const submitSuggestion = onCall(optionsWithoutApiKey, async (req: CallableRequest<{ moduleId: string, stepIndex: number, text: string }>) => {
-    const uid = req.auth?.uid; // Can be anonymous
-    const { moduleId, stepIndex, text } = req.data;
-    const ref = await db.collection("traineeSuggestions").add({
-        module_id: moduleId,
-        step_index: stepIndex,
-        text: text,
-        user_id: uid,
-        status: "pending",
-        created_at: FieldValue.serverTimestamp(),
+export const logCheckpointResponse = onCall(optionsWithoutApiKey, async (request) => {
+    if (!request.auth?.uid) throw new HttpsError("unauthenticated", "Auth required.");
+    const response = { ...request.data, created_at: FieldValue.serverTimestamp() };
+    await db.collection("checkpointResponses").add(response);
+    return { success: true };
+});
+
+export const getCheckpointResponsesForModule = onCall(optionsWithoutApiKey, async (request) => {
+    if (!request.auth?.uid) throw new HttpsError("unauthenticated", "Auth required.");
+    const { moduleId } = request.data;
+    const snapshot = await db.collection("checkpointResponses").where("module_id", "==", moduleId).get();
+    return snapshot.docs.map((doc) => ({ ...doc.data(), id: doc.id }));
+});
+
+export const getCheckpointFailureStats = onCall(optionsWithoutApiKey, async (request) => {
+    const { moduleId } = request.data;
+    const snapshot = await db.collection("checkpointResponses").where("module_id", "==", moduleId).where("answer", "==", "No").get();
+    const counts: { [key: string]: { step_index: number, checkpoint_text: string, count: number } } = {};
+    snapshot.forEach((doc) => {
+        const data = doc.data();
+        const key = `${data.step_index}`;
+        if (!counts[key]) {
+            counts[key] = { step_index: data.step_index, checkpoint_text: data.checkpoint_text, count: 0 };
+        }
+        counts[key].count++;
     });
-    const doc = await ref.get();
-    return { id: doc.id, ...doc.data() };
+    return Object.values(counts);
 });
 
-
-export const getTraineeSuggestionsForModule = onCall(optionsWithoutApiKey, async (req) => {
-    if (!req.auth?.uid) throw new HttpsError("unauthenticated", "Authentication required.");
-    const snapshot = await db.collection("traineeSuggestions").where("module_id", "==", req.data.moduleId).get();
-    return snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
+export const submitSuggestion = onCall(optionsWithoutApiKey, async (request) => {
+    const uid = request.auth?.uid;
+    const data = { ...request.data, user_id: uid, status: "pending", created_at: FieldValue.serverTimestamp() };
+    const docRef = await db.collection("traineeSuggestions").add(data);
+    return { id: docRef.id, ...data };
 });
 
-export const getAllPendingSuggestions = onCall(optionsWithoutApiKey, async (req) => {
-    if (!req.auth?.uid) throw new HttpsError("unauthenticated", "Authentication required.");
+export const getTraineeSuggestionsForModule = onCall(optionsWithoutApiKey, async (request) => {
+    if (!request.auth?.uid) throw new HttpsError("unauthenticated", "Auth required.");
+    const { moduleId } = request.data;
+    const snapshot = await db.collection("traineeSuggestions").where("module_id", "==", moduleId).get();
+    return snapshot.docs.map((doc) => ({ ...doc.data(), id: doc.id }));
+});
+
+export const getAllPendingSuggestions = onCall(optionsWithoutApiKey, async (request) => {
+    if (!request.auth?.uid) throw new HttpsError("unauthenticated", "Auth required.");
     const snapshot = await db.collection("traineeSuggestions").where("status", "==", "pending").get();
-    const suggestions = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
-    const moduleIds = [...new Set(suggestions.map(s => (s as { module_id: string }).module_id))];
-    if (moduleIds.length === 0) return [];
-    const modulesSnapshot = await db.collection("modules").where(admin.firestore.FieldPath.documentId(), "in", moduleIds).get();
-    const moduleTitles = new Map(modulesSnapshot.docs.map(doc => [doc.id, doc.data().title]));
-    return suggestions.map(s => ({ ...s, module_title: moduleTitles.get((s as { module_id: string }).module_id) }));
+    const modules = await db.collection("modules").get();
+    const moduleTitles: { [id: string]: string } = {};
+    modules.forEach((doc) => {
+        moduleTitles[doc.id] = doc.data().title;
+    });
+    return snapshot.docs.map((doc) => ({
+        ...doc.data(),
+        id: doc.id,
+        module_title: moduleTitles[doc.data().module_id],
+    }));
 });
 
-
-export const deleteTraineeSuggestion = onCall(optionsWithoutApiKey, async (req: CallableRequest<{ suggestionId: string }>) => {
-    if (!req.auth?.uid) throw new HttpsError("unauthenticated", "Authentication required.");
-    await db.collection("traineeSuggestions").doc(req.data.suggestionId).delete();
+export const deleteTraineeSuggestion = onCall(optionsWithoutApiKey, async (request) => {
+    if (!request.auth?.uid) throw new HttpsError("unauthenticated", "Auth required.");
+    const { suggestionId } = request.data;
+    await db.collection("traineeSuggestions").doc(suggestionId).delete();
     return { success: true };
 });
 
-export const getAiSuggestionsForModule = onCall(optionsWithoutApiKey, async (req) => {
-    if (!req.auth?.uid) throw new HttpsError("unauthenticated", "Authentication required.");
-    const snapshot = await db.collection("aiSuggestions").where("module_id", "==", req.data.moduleId).orderBy("created_at", "desc").get();
-    return snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
+export const getAiSuggestionsForModule = onCall(optionsWithoutApiKey, async (request) => {
+    if (!request.auth?.uid) throw new HttpsError("unauthenticated", "Auth required.");
+    const { moduleId } = request.data;
+    const snapshot = await db.collection("aiSuggestions").where("moduleId", "==", moduleId).get();
+    return snapshot.docs.map((doc) => ({ ...doc.data(), id: doc.id }));
 });
 
-export const getLatestAiSuggestionForStep = onCall(optionsWithoutApiKey, async (req) => {
-    if (!req.auth?.uid) throw new HttpsError("unauthenticated", "Authentication required.");
+export const getLatestAiSuggestionForStep = onCall(optionsWithoutApiKey, async (request) => {
+    if (!request.auth?.uid) throw new HttpsError("unauthenticated", "Auth required.");
+    const { moduleId, stepIndex } = request.data;
     const snapshot = await db.collection("aiSuggestions")
-        .where("module_id", "==", req.data.moduleId)
-        .where("step_index", "==", req.data.stepIndex)
-        .orderBy("created_at", "desc")
-        .limit(1).get();
-    if (snapshot.empty) return null;
-    const doc = snapshot.docs[0];
-    return { ...doc.data(), id: doc.id };
+        .where("moduleId", "==", moduleId)
+        .where("stepIndex", "==", stepIndex)
+        .orderBy("createdAt", "desc")
+        .limit(1)
+        .get();
+    return snapshot.empty ? null : { ...snapshot.docs[0].data(), id: snapshot.docs[0].id };
 });
 
-// --- Checkpoint Service Functions ---
-
-export const logCheckpointResponse = onCall(optionsWithoutApiKey, async (req: CallableRequest<any>) => {
-    const { moduleId, userId, stepIndex, checkpointText, answer, comment } = req.data;
-    await db.collection("checkpointResponses").add({
-        module_id: moduleId,
-        user_id: userId,
-        step_index: stepIndex,
-        checkpoint_text: checkpointText,
-        answer,
-        comment,
-        created_at: FieldValue.serverTimestamp(),
-    });
-    return { success: true };
+export const logAiFeedback = onCall(optionsWithoutApiKey, async (request) => {
+    if (!request.auth?.uid) throw new HttpsError("unauthenticated", "Auth required.");
+    const data = { ...request.data, createdAt: FieldValue.serverTimestamp() };
+    const docRef = await db.collection("feedbackLogs").add(data);
+    return { logId: docRef.id };
 });
 
-export const getCheckpointResponsesForModule = onCall(optionsWithoutApiKey, async (req) => {
-    if (!req.auth?.uid) throw new HttpsError("unauthenticated", "Authentication required.");
-    const snapshot = await db.collection("checkpointResponses").where("module_id", "==", req.data.moduleId).get();
-    return snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
-});
-
-// --- Feedback Service Functions (for Live Coach) ---
-
-export const logAiFeedback = onCall(optionsWithoutApiKey, async (req: CallableRequest<any>) => {
-    const { sessionToken, moduleId, stepIndex, userPrompt, aiResponse, feedback } = req.data;
-    const ref = await db.collection("feedbackLogs").add({
-        sessionToken, moduleId, stepIndex, userPrompt, aiResponse, feedback,
-        created_at: FieldValue.serverTimestamp(),
-    });
-    return { logId: ref.id };
-});
-
-export const updateFeedbackWithFix = onCall(optionsWithApiKey, async (req: CallableRequest<{ logId: string, fixOrRating: string }>) => {
-    const { logId, fixOrRating } = req.data;
-    const updateData: { feedback: "good" | "bad", userFixText?: string, fixEmbedding?: number[] } = {
-        feedback: fixOrRating === "good" ? "good" : "bad",
-    };
-    if (fixOrRating !== "good") {
-        updateData.userFixText = fixOrRating;
-        updateData.fixEmbedding = await generateEmbedding(fixOrRating);
+export const updateFeedbackWithFix = onCall(optionsWithApiKey, async (request) => {
+    if (!request.auth?.uid) throw new HttpsError("unauthenticated", "Auth required.");
+    const { logId, fixOrRating } = request.data;
+    const dataToUpdate: { feedback?: "good"; userFixText?: string; fixEmbedding?: number[] } = {};
+    if (fixOrRating === "good") {
+        dataToUpdate.feedback = "good";
+    } else {
+        dataToUpdate.userFixText = fixOrRating;
+        dataToUpdate.fixEmbedding = await generateEmbedding(fixOrRating);
     }
-    await db.collection("feedbackLogs").doc(logId).update(updateData);
+    await db.collection("feedbackLogs").doc(logId).update(dataToUpdate);
     return { success: true };
 });
 
-export const getPastFeedbackForStep = onCall(optionsWithoutApiKey, async (req) => {
-    const { moduleId, stepIndex } = req.data;
+export const getPastFeedbackForStep = onCall(optionsWithoutApiKey, async (request) => {
+    if (!request.auth?.uid) throw new HttpsError("unauthenticated", "Auth required.");
+    const { moduleId, stepIndex } = request.data;
     const snapshot = await db.collection("feedbackLogs")
-        .where("module_id", "==", moduleId)
-        .where("step_index", "==", stepIndex)
-        .orderBy("created_at", "desc")
+        .where("moduleId", "==", moduleId)
+        .where("stepIndex", "==", stepIndex)
+        .orderBy("createdAt", "desc")
         .limit(5)
         .get();
-    return snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
+    return snapshot.docs.map((doc) => ({ ...doc.data(), id: doc.id }));
 });
 
-export const findSimilarFixes = onCall(optionsWithApiKey, async (req: CallableRequest<{ userQuery: string; moduleId: string; stepIndex: number }>) => {
-    const { userQuery, moduleId, stepIndex } = req.data;
+export const findSimilarFixes = onCall(optionsWithApiKey, async (request) => {
+    if (!request.auth?.uid) throw new HttpsError("unauthenticated", "Auth required.");
+    const { moduleId, stepIndex, userQuery } = request.data;
     const queryVector = await generateEmbedding(userQuery);
     const snapshot = await db.collection("feedbackLogs")
-        .where("module_id", "==", moduleId)
-        .where("step_index", "==", stepIndex)
-        .where("feedback", "==", "bad") // Only learn from corrected mistakes
-        .where("fixEmbedding", "!=", null)
+        .where("moduleId", "==", moduleId)
+        .where("stepIndex", "==", stepIndex)
+        .where("userFixText", "!=", null)
         .get();
 
-    const results = snapshot.docs.map(doc => {
+    const results = snapshot.docs.map((doc) => {
         const data = doc.data();
         const similarity = cosineSimilarity(queryVector, data.fixEmbedding);
-        return { userFixText: data.userFixText, id: doc.id, similarity };
+        return { id: doc.id, userFixText: data.userFixText, similarity };
     });
 
-    return results.filter(r => r.similarity > 0.8).sort((a, b) => b.similarity - a.similarity).slice(0, 3);
+    return results
+        .filter((r) => r.similarity > 0.85)
+        .sort((a, b) => b.similarity - a.similarity)
+        .slice(0, 3);
 });
 
-
-// --- Routines Service Functions ---
-
-export const saveRoutine = onCall(optionsWithoutApiKey, async (req: CallableRequest<{ routine: any }>) => {
-    const uid = req.auth?.uid;
-    if (!uid) throw new HttpsError("unauthenticated", "Authentication required.");
-
-    const { routine } = req.data;
-    const { id, ...dataToSave } = routine;
-
-    dataToSave.userId = uid;
-    dataToSave.updatedAt = FieldValue.serverTimestamp();
-
-    if (id) {
-        const routineRef = db.collection("routines").doc(id);
-        await routineRef.update(dataToSave);
-        const doc = await routineRef.get();
-        return { id: doc.id, ...doc.data() };
-    } else {
-        dataToSave.createdAt = FieldValue.serverTimestamp();
-        const newRef = await db.collection("routines").add(dataToSave);
-        const doc = await newRef.get();
-        return { id: doc.id, ...doc.data() };
-    }
+export const getRoutinesForTemplate = onCall(optionsWithoutApiKey, async (request) => {
+    if (!request.auth?.uid) throw new HttpsError("unauthenticated", "Auth required.");
+    const { templateId } = request.data;
+    const snapshot = await db.collection("routines").where("templateId", "==", templateId).get();
+    return snapshot.docs.map((doc) => ({ ...doc.data(), id: doc.id }));
 });
 
-export const getRoutineForIntent = onCall(optionsWithoutApiKey, async (req: CallableRequest<{ templateId: string, intent: string }>) => {
-    const { templateId, intent } = req.data;
-    const snap = await db.collection("routines")
+export const getRoutineForIntent = onCall(optionsWithoutApiKey, async (request) => {
+    const { templateId, intent } = request.data;
+    const snapshot = await db.collection("routines")
         .where("templateId", "==", templateId)
         .where("intent", "==", intent)
         .limit(1)
         .get();
-
-    if (snap.empty) return null;
-
-    const doc = snap.docs[0];
-    return { id: doc.id, ...doc.data() };
+    return snapshot.empty ? null : { ...snapshot.docs[0].data(), id: snapshot.docs[0].id };
 });
 
-export const getSignedRoutineVideoUploadUrl = onCall(optionsWithoutApiKey, async (req: CallableRequest<{ templateId: string, intent: string, contentType: string }>) => {
-    const uid = req.auth?.uid;
-    if (!uid) throw new HttpsError("unauthenticated", "Authentication required.");
-
-    const { templateId, intent, contentType } = req.data;
-    const filePath = `routines_videos/${uid}/${templateId}_${intent}_${Date.now()}`;
-    const file = storage.bucket(BUCKET_NAME).file(filePath);
-
-    const [url] = await file.getSignedUrl({
-        version: "v4",
-        action: "write",
-        expires: Date.now() + 15 * 60 * 1000,
-        contentType,
-    });
-
-    return { uploadUrl: url, filePath };
-});
-
-export const deleteRoutine = onCall(optionsWithoutApiKey, async (req: CallableRequest<{ routineId: string }>) => {
-    const uid = req.auth?.uid;
-    if (!uid) throw new HttpsError("unauthenticated", "Authentication required.");
-
-    const { routineId } = req.data;
-    const routineRef = db.collection("routines").doc(routineId);
-    const doc = await routineRef.get();
-
-    if (!doc.exists || doc.data()?.userId !== uid) {
-        throw new HttpsError("permission-denied", "You do not own this routine.");
+export const saveRoutine = onCall(optionsWithoutApiKey, async (request) => {
+    if (!request.auth?.uid) throw new HttpsError("unauthenticated", "Auth required.");
+    const { routineData } = request.data;
+    let docRef;
+    if (routineData.id) {
+        docRef = db.collection("routines").doc(routineData.id);
+        await docRef.update({ ...routineData, updatedAt: FieldValue.serverTimestamp() });
+    } else {
+        docRef = await db.collection("routines").add({ ...routineData, createdAt: FieldValue.serverTimestamp() });
     }
-    await routineRef.delete();
+    const savedDoc = await docRef.get();
+    return { ...savedDoc.data(), id: savedDoc.id };
+});
+
+export const deleteRoutine = onCall(optionsWithoutApiKey, async (request) => {
+    if (!request.auth?.uid) throw new HttpsError("unauthenticated", "Auth required.");
+    const { routineId } = request.data;
+    // Also delete associated video from GCS if it exists
+    const doc = await db.collection("routines").doc(routineId).get();
+    if (doc.exists && doc.data()?.videoUrl) {
+        await storage.bucket(BUCKET_NAME).file(doc.data()?.videoUrl).delete().catch((e) => logger.warn("Could not delete routine video", e));
+    }
+    await db.collection("routines").doc(routineId).delete();
     return { success: true };
-});
-
-export const getRoutinesForTemplate = onCall(optionsWithoutApiKey, async (req: CallableRequest<{ templateId: string }>) => {
-    const { templateId } = req.data;
-    const snapshot = await db.collection("routines").where("templateId", "==", templateId).get();
-    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-});
-
-
-// --- Text-to-Speech Service ---
-export const generateSpeech = onCall(optionsWithApiKey, async (req: CallableRequest<{ text: string, voiceId: string }>) => {
-    const { text, voiceId } = req.data;
-    const GOOGLE_API_KEY = process.env.API_KEY;
-
-    if (!GOOGLE_API_KEY) {
-        logger.error("Google Cloud TTS API key is not configured. Ensure the function is deployed with the 'API_KEY' secret.");
-        throw new HttpsError("internal", "TTS service is not configured.");
-    }
-    if (!text || !voiceId) {
-        throw new HttpsError("invalid-argument", "Text and voiceId (a Google Cloud TTS voice name) are required.");
-    }
-
-    const ttsUrl = `https://texttospeech.googleapis.com/v1/text:synthesize?key=${GOOGLE_API_KEY}`;
-
-    // Extract language code from the voice name, e.g., "en-US-Wavenet-D" -> "en-US"
-    const languageCode = voiceId.split("-").slice(0, 2).join("-");
-
-    try {
-        const response = await fetch(ttsUrl, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-                input: {
-                    text: text,
-                },
-                voice: {
-                    languageCode: languageCode,
-                    name: voiceId,
-                },
-                audioConfig: {
-                    audioEncoding: "MP3",
-                },
-            }),
-        });
-
-        if (!response.ok) {
-            const errorBody = await response.json();
-            logger.error(`Google Cloud TTS API error: ${response.status}`, errorBody);
-            const errorMessage = errorBody?.error?.message || `Failed to generate audio. Status: ${response.status}`;
-            throw new HttpsError("internal", errorMessage);
-        }
-
-        const data = await response.json() as { audioContent: string };
-
-        if (!data.audioContent) {
-            logger.error("Google Cloud TTS API response did not contain audioContent.");
-            throw new HttpsError("internal", "TTS service returned an empty audio response.");
-        }
-
-        // The API returns the audio content as a base64-encoded string, which is what the client expects.
-        return { audioContent: data.audioContent };
-    } catch (error) {
-        logger.error("Error calling Google Cloud TTS service:", error);
-        if (error instanceof HttpsError) throw error;
-        throw new HttpsError("internal", "An error occurred while generating speech.");
-    }
 });

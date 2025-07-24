@@ -1,38 +1,43 @@
 import type { AnalysisHotspot, QuestionStats, TutorLogRow, AppModuleWithStats } from '@/types';
 import { functions } from '@/firebase';
-import type firebase from 'firebase/compat/app';
-import 'firebase/compat/functions';
+import { httpsCallable } from 'firebase/functions';
 
 
-const getQuestionFrequencyFn = functions.httpsCallable('getQuestionFrequency');
-const getTutorLogsFn = functions.httpsCallable('getTutorLogs');
-const getAllTutorLogsFn = functions.httpsCallable('getAllTutorLogs');
-const getQuestionLogsByQuestionFn = functions.httpsCallable('getQuestionLogsByQuestion');
+const getQuestionFrequencyFn = httpsCallable<{ moduleId: string }, QuestionStats[]>(functions, 'getQuestionFrequency');
+const getTutorLogsFn = httpsCallable<{ moduleId: string }, TutorLogRow[]>(functions, 'getTutorLogs');
+const getAllTutorLogsFn = httpsCallable<void, TutorLogRow[]>(functions, 'getAllTutorLogs');
+const getQuestionLogsByQuestionFn = httpsCallable<{
+    moduleId: string;
+    stepIndex: number;
+    question: string;
+    startDate?: string;
+    endDate?: string;
+}, TutorLogRow[]>(functions, 'getQuestionLogsByQuestion');
 
 export const getQuestionFrequency = async (moduleId: string): Promise<QuestionStats[]> => {
-    const result: firebase.functions.HttpsCallableResult = await getQuestionFrequencyFn({ moduleId });
-    return result.data as QuestionStats[];
+    const result = await getQuestionFrequencyFn({ moduleId });
+    return result.data;
 };
 
 export const getTutorLogs = async (moduleId: string): Promise<TutorLogRow[]> => {
-    const result: firebase.functions.HttpsCallableResult = await getTutorLogsFn({ moduleId });
-    return result.data as TutorLogRow[];
+    const result = await getTutorLogsFn({ moduleId });
+    return result.data;
 };
 
 export const getAllTutorLogs = async (): Promise<TutorLogRow[]> => {
-    const result: firebase.functions.HttpsCallableResult = await getAllTutorLogsFn();
-    return result.data as TutorLogRow[];
+    const result = await getAllTutorLogsFn();
+    return result.data;
 };
 
-export const getQuestionLogsByQuestion = async ({ moduleId, stepIndex, question, startDate, endDate }: {
+export const getQuestionLogsByQuestion = async (params: {
     moduleId: string;
     stepIndex: number;
     question: string;
     startDate?: string;
     endDate?: string;
 }): Promise<TutorLogRow[]> => {
-    const result: firebase.functions.HttpsCallableResult = await getQuestionLogsByQuestionFn({ moduleId, stepIndex, question, startDate, endDate });
-    return result.data as TutorLogRow[];
+    const result = await getQuestionLogsByQuestionFn(params);
+    return result.data;
 };
 
 // Client-side utility function, does not require backend changes

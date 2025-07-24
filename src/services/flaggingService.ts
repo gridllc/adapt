@@ -1,11 +1,10 @@
 import { functions } from '@/firebase';
-import type firebase from 'firebase/compat/app';
-import 'firebase/compat/functions';
+import { httpsCallable } from 'firebase/functions';
 import type { FlaggedQuestion, FlaggedQuestionForInsert } from '@/types';
 
 // --- Callable Firebase Functions ---
-const flagQuestionFn = functions.httpsCallable('flagQuestion');
-const getFlaggedQuestionsFn = functions.httpsCallable('getFlaggedQuestions');
+const flagQuestionFn = httpsCallable<FlaggedQuestionForInsert, void>(functions, 'flagQuestion');
+const getFlaggedQuestionsFn = httpsCallable<{ moduleId: string }, FlaggedQuestion[]>(functions, 'getFlaggedQuestions');
 
 export async function flagQuestion(flagData: FlaggedQuestionForInsert): Promise<void> {
     try {
@@ -21,8 +20,8 @@ export async function flagQuestion(flagData: FlaggedQuestionForInsert): Promise<
 
 export async function getFlaggedQuestions(moduleId: string): Promise<FlaggedQuestion[]> {
     try {
-        const result: firebase.functions.HttpsCallableResult = await getFlaggedQuestionsFn({ moduleId });
-        return result.data as FlaggedQuestion[];
+        const result = await getFlaggedQuestionsFn({ moduleId });
+        return result.data;
     } catch (error) {
         console.error("[Firebase] Error fetching flagged questions:", error);
         // Return empty on error to prevent UI crashes.

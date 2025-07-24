@@ -1,5 +1,6 @@
 import { getVoiceIdForCharacter } from '@/utils/voiceMap';
 import { functions } from '@/firebase';
+import { httpsCallable } from 'firebase/functions';
 
 
 // Cache to store generated audio blob URLs. The key is a composite of voiceId and text.
@@ -10,7 +11,7 @@ const audioCache = new Map<string, string>();
 let currentAudio: HTMLAudioElement | null = null;
 
 // Use the httpsCallable function to securely call our backend function.
-const generateSpeechFn = functions.httpsCallable('generateSpeech');
+const generateSpeechFn = httpsCallable<{ text: string, voiceId: string }, { audioContent: string }>(functions, 'generateSpeech');
 
 /**
  * Plays an audio file from a given URL.
@@ -101,7 +102,7 @@ export async function speak(text: string, character: string = 'system'): Promise
     // 2. Fetch from high-quality TTS API via Firebase Function
     try {
         const result = await generateSpeechFn({ text, voiceId });
-        const { audioContent: base64Audio } = result.data as { audioContent: string };
+        const { audioContent: base64Audio } = result.data;
 
         if (!base64Audio) {
             throw new Error("TTS function returned no audio content.");

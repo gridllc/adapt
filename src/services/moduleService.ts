@@ -4,16 +4,15 @@
 
 import type { AppModule, AppModuleWithStats, ModuleForInsert } from '@/types';
 import { functions } from '@/firebase';
-import type firebase from 'firebase/compat/app';
-import 'firebase/compat/functions';
+import { httpsCallable } from 'firebase/functions';
 
 
-// --- Callable Firebase Functions (Compat SDK) ---
-const getModuleFn = functions.httpsCallable('getModule');
-const getSignedUploadUrlFn = functions.httpsCallable('getSignedUploadUrl');
-const saveModuleFn = functions.httpsCallable('saveModule');
-const getAvailableModulesFn = functions.httpsCallable('getAvailableModules');
-const deleteModuleFn = functions.httpsCallable('deleteModule');
+// --- Callable Firebase Functions (v9 SDK) ---
+const getModuleFn = httpsCallable<{ moduleId: string }, AppModule | undefined>(functions, 'getModule');
+const getSignedUploadUrlFn = httpsCallable<{ slug: string, contentType: string, fileExtension: string }, { uploadUrl: string, filePath: string }>(functions, 'getSignedUploadUrl');
+const saveModuleFn = httpsCallable<{ moduleData: ModuleForInsert & { video_url: string | null } }, AppModule>(functions, 'saveModule');
+const getAvailableModulesFn = httpsCallable<void, AppModuleWithStats[]>(functions, 'getAvailableModules');
+const deleteModuleFn = httpsCallable<{ slug: string }, void>(functions, 'deleteModule');
 
 
 // --- Implemented Functions ---
@@ -39,8 +38,8 @@ export const getModule = async (slug: string): Promise<AppModule | undefined> =>
     }
 
     try {
-        const result: firebase.functions.HttpsCallableResult = await getModuleFn({ moduleId: slug });
-        return result.data as AppModule | undefined;
+        const result = await getModuleFn({ moduleId: slug });
+        return result.data;
     } catch (error) {
         console.error(`[Firebase] Error fetching module '${slug}':`, error);
         // Re-throw the error so react-query can handle the error state.
@@ -64,12 +63,12 @@ export const saveModule = async ({
 
         try {
             // Step 1a: Get a signed URL from our secure backend function.
-            const result: firebase.functions.HttpsCallableResult = await getSignedUploadUrlFn({
+            const result = await getSignedUploadUrlFn({
                 slug: moduleData.slug,
                 contentType: videoFile.type,
                 fileExtension: fileExtension,
             });
-            const { uploadUrl, filePath } = result.data as { uploadUrl: string; filePath: string };
+            const { uploadUrl, filePath } = result.data;
 
             // Step 1b: Upload the file directly to GCS from the client.
             const uploadResponse = await fetch(uploadUrl, {
@@ -98,9 +97,9 @@ export const saveModule = async ({
             video_url: videoUrlPath, // Use the new GCS path
         };
 
-        const result: firebase.functions.HttpsCallableResult = await saveModuleFn({ moduleData: moduleToSave });
+        const result = await saveModuleFn({ moduleData: moduleToSave });
 
-        return result.data as AppModule;
+        return result.data;
     } catch (error) {
         console.error(`[Firebase] Error saving module metadata for '${moduleData.slug}':`, error);
         throw error;
@@ -109,8 +108,8 @@ export const saveModule = async ({
 
 export const getAvailableModules = async (): Promise<AppModuleWithStats[]> => {
     try {
-        const result: firebase.functions.HttpsCallableResult = await getAvailableModulesFn();
-        return result.data as AppModuleWithStats[];
+        const result = await getAvailableModulesFn();
+        return result.data;
     } catch (error) {
         console.error("[Firebase] Error fetching available modules:", error);
         throw error;
