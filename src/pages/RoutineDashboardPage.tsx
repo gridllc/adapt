@@ -1,82 +1,66 @@
-import React, { useEffect, useState } from "react";
+import React, { useMemo } from "react";
 import { Link } from "react-router-dom";
-import { db } from "@/firebase";
 import { Bar } from "react-chartjs-2";
 import { Chart as ChartJS, registerables } from 'chart.js';
+import { useQuery } from '@tanstack/react-query';
 import type { Routine, TutorLogRow } from "@/types";
 import { SparklesIcon, PlayCircleIcon } from "@/components/Icons";
+import { getAllRoutines } from '@/services/routineService';
+import { getAllTutorLogs } from '@/services/analyticsService';
 
 ChartJS.register(...registerables);
 
 const RoutineDashboardPage: React.FC = () => {
-    const [routines, setRoutines] = useState<Routine[]>([]);
-    const [tutorLogs, setTutorLogs] = useState<TutorLogRow[]>([]);
-    const [isLoading, setIsLoading] = useState(true);
+    const { data: routines = [], isLoading: isLoadingRoutines } = useQuery<Routine[]>({
+        queryKey: ['allRoutines'],
+        queryFn: getAllRoutines,
+    });
 
-    useEffect(() => {
-        const fetchAll = async () => {
-            setIsLoading(true);
-            try {
-                const rSnap = await db.collection("routines").get();
+    const { data: allTutorLogs = [], isLoading: isLoadingLogs } = useQuery<TutorLogRow[]>({
+        queryKey: ['allTutorLogs'],
+        queryFn: getAllTutorLogs,
+    });
 
-                // Querying for tutor logs that are routine-based
-                const lSnap = await db.collection("tutorLogs").where("remote_type", "==", "ai-routine").get();
+    const isLoading = isLoadingRoutines || isLoadingLogs;
 
-                const rData = rSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() } as Routine));
-                const lData = lSnap.docs.map((doc) => doc.data() as TutorLogRow);
+    const routineUsageLogs = useMemo(() =>
+        Array.isArray(allTutorLogs) ? allTutorLogs.filter(log => log.remote_type === 'ai-routine') : [],
+        [allTutorLogs]);
 
-                setRoutines(rData);
-                setTutorLogs(lData);
-            } catch (error) {
-                console.error("Error fetching dashboard data:", error);
-            } finally {
-                setIsLoading(false);
+    const intentCounts = useMemo(() =>
+        routineUsageLogs.reduce<Record<string, number>>((acc, log) => {
+            const intent = log.step_title || "(unspecified)";
+            acc[intent] = (acc[intent] || 0) + 1;
+            return acc;
+        }, {}),
+        [routineUsageLogs]);
+
+    const routineGroups = useMemo(() =>
+        Array.isArray(routines) ? routines.reduce<Record<string, Routine[]>>((acc, r) => {
+            if (!acc[r.templateId]) acc[r.templateId] = [];
+            acc[r.templateId].push(r);
+            return acc;
+        }, {}) : {},
+        [routines]);
+
+    const suggestedRoutines = useMemo(() => {
+        if (!Array.isArray(routines) || routines.length === 0 || !Array.isArray(allTutorLogs) || allTutorLogs.length === 0) return [];
+
+        const allIntentCounts = allTutorLogs.reduce<Record<string, number>>((acc, log) => {
+            const intent = log.step_title || "(unspecified)";
+            if (intent !== "(unspecified)" && log.remote_type !== "ai-routine") {
+                acc[intent] = (acc[intent] || 0) + 1;
             }
-        };
-        fetchAll();
-    }, []);
+            return acc;
+        }, {});
 
-    // Group tutor log usage by intent
-    const intentCounts = tutorLogs.reduce<Record<string, number>>((acc, log) => {
-        // 'step_title' stores the intent for routine logs
-        const intent = log.step_title || "(unspecified)";
-        acc[intent] = (acc[intent] || 0) + 1;
-        return acc;
-    }, {});
-
-    const routineGroups = routines.reduce<Record<string, Routine[]>>((acc, r) => {
-        if (!acc[r.templateId]) acc[r.templateId] = [];
-        acc[r.templateId].push(r);
-        return acc;
-    }, {});
-
-    // Determine frequently requested but undefined intents by fetching ALL logs
-    const [suggestedRoutines, setSuggestedRoutines] = useState<{ intent: string, count: number }[]>([]);
-    useEffect(() => {
-        const findSuggestions = async () => {
-            if (routines.length > 0) { // Only run if we have routines to compare against
-                const allLogsSnap = await db.collection("tutorLogs").get();
-                const allLogs = allLogsSnap.docs.map(doc => doc.data()) as TutorLogRow[];
-
-                const allIntentCounts = allLogs.reduce<Record<string, number>>((acc, log) => {
-                    const intent = log.step_title || "(unspecified)";
-                    if (intent !== "(unspecified)" && log.remote_type !== "ai-routine") { // Exclude already-handled routines
-                        acc[intent] = (acc[intent] || 0) + 1;
-                    }
-                    return acc;
-                }, {});
-
-                const definedIntents = new Set(routines.map(r => r.intent.toLowerCase()));
-                const suggestions = Object.entries(allIntentCounts)
-                    .filter(([intent]) => !definedIntents.has(intent.toLowerCase()))
-                    .sort((a, b) => b[1] - a[1])
-                    .slice(0, 5)
-                    .map(([intent, count]) => ({ intent, count }));
-                setSuggestedRoutines(suggestions);
-            }
-        };
-        findSuggestions();
-    }, [routines]);
+        const definedIntents = new Set(routines.map(r => r.intent.toLowerCase()));
+        return Object.entries(allIntentCounts)
+            .filter(([intent]) => !definedIntents.has(intent.toLowerCase()))
+            .sort(([, countA], [, countB]) => countB - countA)
+            .slice(0, 5)
+            .map(([intent, count]) => ({ intent, count }));
+    }, [routines, allTutorLogs]);
 
 
     return (

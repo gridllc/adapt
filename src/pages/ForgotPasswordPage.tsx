@@ -7,14 +7,14 @@ const ForgotPasswordPage: React.FC = () => {
     const [email, setEmail] = useState('');
     const [submitted, setSubmitted] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
-    const { sendPasswordResetEmail } = useAuth();
+    const { resetPasswordEmail } = useAuth();
     const { addToast } = useToast();
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setIsLoading(true);
         try {
-            const { error } = await sendPasswordResetEmail(email);
+            const { error } = await resetPasswordEmail(email);
             if (error) {
                 throw error;
             }

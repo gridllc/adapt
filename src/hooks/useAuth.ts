@@ -10,7 +10,7 @@ interface AuthContextType {
     login: typeof authService.signInWithPassword; // Alias for backward compatibility
     signUp: typeof authService.signUp;
     signOut: typeof authService.signOut;
-    sendPasswordResetEmail: typeof authService.sendPasswordResetEmail;
+    resetPasswordEmail: typeof authService.resetPasswordEmail;
     updateUserPassword: typeof authService.updateUserPassword;
 }
 
@@ -50,7 +50,7 @@ export const AuthProvider: React.FC<{ children: ReactNode, debug?: boolean }> = 
         login: authService.signInWithPassword, // Add alias to value
         signUp: authService.signUp,
         signOut: authService.signOut,
-        sendPasswordResetEmail: authService.sendPasswordResetEmail,
+        resetPasswordEmail: authService.resetPasswordEmail,
         updateUserPassword: authService.updateUserPassword,
     };
 
