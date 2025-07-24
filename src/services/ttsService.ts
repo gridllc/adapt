@@ -1,4 +1,5 @@
 import { getVoiceIdForCharacter } from '@/utils/voiceMap';
+import { functions } from '@/firebase';
 
 // Cache to store generated audio blob URLs. The key is a composite of voiceId and text.
 const MAX_CACHE_SIZE = 50; // A reasonable limit to prevent unbounded memory usage.
@@ -6,6 +7,9 @@ const audioCache = new Map<string, string>();
 
 // Keep track of the currently playing audio element to allow for interruption.
 let currentAudio: HTMLAudioElement | null = null;
+
+// Use the httpsCallable function to securely call our backend function.
+const textToSpeechFn = functions.httpsCallable('textToSpeech');
 
 /**
  * Plays an audio file from a given URL.
@@ -61,7 +65,7 @@ const speakWithFallbackApi = (text: string): Promise<void> => {
 
         // Cancel any native speech that might be ongoing.
         window.speechSynthesis.cancel();
-        
+
         const utterance = new SpeechSynthesisUtterance(text);
         utterance.onend = () => resolve();
         utterance.onerror = (event) => {
@@ -75,9 +79,8 @@ const speakWithFallbackApi = (text: string): Promise<void> => {
 
 
 /**
- * Speaks the given text using a high-quality TTS API, with caching.
+ * Speaks the given text using a high-quality TTS API via a secure Firebase Function, with caching.
  * If the API fails, it gracefully falls back to the browser's native speech synthesis.
- * The function is now asynchronous and returns a promise that resolves when speech is complete.
  * @param {string} text - The text to be spoken.
  * @param {string} [character='system'] - The persona to use for the voice.
  * @returns {Promise<void>} A promise that resolves when speech has finished.
@@ -85,62 +88,48 @@ const speakWithFallbackApi = (text: string): Promise<void> => {
 export async function speak(text: string, character: string = 'system'): Promise<void> {
     const voiceId = getVoiceIdForCharacter(character);
     const cacheKey = `${voiceId}-${text}`;
-    
+
     // 1. Check cache first
     if (audioCache.has(cacheKey)) {
         const audioUrl = audioCache.get(cacheKey);
         if (audioUrl) {
-          return playAudio(audioUrl);
+            return playAudio(audioUrl);
         }
     }
-    
-    // 2. Fetch from high-quality TTS API
-    let response: Response | null = null;
+
+    // 2. Fetch from high-quality TTS API via Firebase Function
     try {
-        // NOTE: This assumes a backend endpoint at `/api/tts` that proxies the call to a service like ElevenLabs.
-        // The backend would handle API keys securely. A real implementation would require this API route to be created.
-        response = await fetch('/api/tts', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ text, voiceId }),
-        });
+        const result = await textToSpeechFn({ text, voiceId });
+        const { audioContent: base64Audio } = result.data as { audioContent: string };
 
-        if (!response.ok) {
-            throw new Error(`TTS API request failed with status ${response.status}`);
+        if (!base64Audio) {
+            throw new Error("TTS function returned no audio content.");
         }
 
-        const contentType = response.headers.get('content-type');
-        if (!contentType || !contentType.startsWith('audio/')) {
-            throw new Error(`TTS API returned unexpected content type: ${contentType || 'none'}. Expected audio.`);
+        // Convert base64 string to a Blob URL
+        const fetchResponse = await fetch(`data:audio/mpeg;base64,${base64Audio}`);
+        if (!fetchResponse.ok) {
+            throw new Error('Failed to convert base64 audio to Blob.');
         }
-        
-        const blob = await response.blob();
+        const blob = await fetchResponse.blob();
         const audioUrl = URL.createObjectURL(blob);
-        
+
         // --- Cache Management ---
-        // If cache is full, evict the oldest entry to prevent memory leaks from blob URLs.
         if (audioCache.size >= MAX_CACHE_SIZE) {
             const oldestKey = audioCache.keys().next().value;
             if (oldestKey) {
                 const urlToRevoke = audioCache.get(oldestKey);
-                if (urlToRevoke) {
-                    URL.revokeObjectURL(urlToRevoke); // Revoke the old blob URL to free memory.
-                }
+                if (urlToRevoke) URL.revokeObjectURL(urlToRevoke);
                 audioCache.delete(oldestKey);
-                console.log(`TTS cache full. Evicted oldest entry: ${oldestKey}`);
             }
         }
-        audioCache.set(cacheKey, audioUrl); // Save to cache
-        
+        audioCache.set(cacheKey, audioUrl);
+
         return playAudio(audioUrl);
 
     } catch (err) {
         // 3. Graceful fallback to browser's native TTS
         console.warn(`High-quality TTS failed: ${err instanceof Error ? err.message : 'Unknown error'}. Falling back to native speech.`);
-        if (response) {
-            console.log("TTS response headers:", response.headers);
-            console.log("TTS status:", response.status);
-        }
         return speakWithFallbackApi(text);
     }
 }
