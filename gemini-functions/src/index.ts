@@ -1,6 +1,9 @@
 
 
-import { onCall, HttpsError } from "firebase-functions/v2/https";
+
+
+import { onCall, HttpsError, CallableRequest } from "firebase-functions/v2/https";
+import { setGlobalOptions } from "firebase-functions/v2";
 import * as logger from "firebase-functions/logger";
 import * as admin from "firebase-admin";
 import { GoogleGenAI, Type } from "@google/genai";
@@ -12,6 +15,10 @@ import { FieldValue } from "firebase-admin/firestore";
 admin.initializeApp();
 const db = admin.firestore();
 const storage = getStorage();
+
+// Set global options for all functions.
+setGlobalOptions({ timeoutSeconds: 60, memory: "1GiB" });
+// Note: v2 onCall functions have CORS enabled by default.
 
 const DAILY_TUTOR_LIMIT = 200;
 
@@ -63,7 +70,7 @@ const cosineSimilarity = (a: number[], b: number[]): number => {
 
 // --- Module Data Functions ---
 
-export const getModule = onCall({ cors: true }, async (req) => {
+export const getModule = onCall(async (req) => {
     const { moduleId } = req.data;
     if (!moduleId) throw new HttpsError("invalid-argument", "A module ID is required.");
     const doc = await db.collection("modules").doc(moduleId).get();
@@ -71,7 +78,7 @@ export const getModule = onCall({ cors: true }, async (req) => {
     return doc.data();
 });
 
-export const getAvailableModules = onCall({ cors: true }, async () => {
+export const getAvailableModules = onCall(async () => {
     const modulesSnap = await db.collection("modules").get();
     const sessionsSnap = await db.collection("sessions").get();
 
@@ -99,7 +106,7 @@ export const getAvailableModules = onCall({ cors: true }, async () => {
     });
 });
 
-export const saveModule = onCall({ cors: true }, async (req) => {
+export const saveModule = onCall(async (req) => {
     const uid = req.auth?.uid;
     if (!uid) throw new HttpsError("unauthenticated", "You must be logged in.");
 
@@ -124,7 +131,7 @@ export const saveModule = onCall({ cors: true }, async (req) => {
     return { ...doc.data(), ...dataToSave };
 });
 
-export const deleteModule = onCall({ cors: true }, async (req) => {
+export const deleteModule = onCall(async (req) => {
     const uid = req.auth?.uid;
     if (!uid) throw new HttpsError("unauthenticated", "You must be logged in.");
 
@@ -172,7 +179,7 @@ export const deleteModule = onCall({ cors: true }, async (req) => {
 
 // --- GCS Signed URL Functions ---
 
-export const getSignedUploadUrl = onCall({ cors: true }, async (req) => {
+export const getSignedUploadUrl = onCall(async (req) => {
     const uid = req.auth?.uid;
     if (!uid) throw new HttpsError("unauthenticated", "You must be logged in.");
 
@@ -188,7 +195,7 @@ export const getSignedUploadUrl = onCall({ cors: true }, async (req) => {
     return { uploadUrl: url, filePath };
 });
 
-export const getSignedManualUploadUrl = onCall({ cors: true }, async (req) => {
+export const getSignedManualUploadUrl = onCall(async (req) => {
     const uid = req.auth?.uid;
     if (!uid) throw new HttpsError("unauthenticated", "You must be logged in.");
 
@@ -209,7 +216,7 @@ export const getSignedManualUploadUrl = onCall({ cors: true }, async (req) => {
 });
 
 
-export const getSignedDownloadUrl = onCall({ cors: true }, async (req) => {
+export const getSignedDownloadUrl = onCall(async (req) => {
     const { filePath } = req.data;
     if (!filePath) throw new HttpsError("invalid-argument", "A file path is required.");
 
@@ -225,13 +232,13 @@ export const getSignedDownloadUrl = onCall({ cors: true }, async (req) => {
 
 // --- Session & Chat Functions ---
 
-export const getSession = onCall({ cors: true }, async (req) => {
+export const getSession = onCall(async (req) => {
     const { moduleId, sessionToken } = req.data;
     const snap = await db.collection("sessions").where("module_id", "==", moduleId).where("session_token", "==", sessionToken).limit(1).get();
     return snap.empty ? null : snap.docs[0].data();
 });
 
-export const saveSession = onCall({ cors: true }, async (req) => {
+export const saveSession = onCall(async (req) => {
     const { moduleId, sessionToken, ...dataToSave } = req.data;
     const snap = await db.collection("sessions").where("module_id", "==", moduleId).where("session_token", "==", sessionToken).limit(1).get();
 
@@ -245,7 +252,7 @@ export const saveSession = onCall({ cors: true }, async (req) => {
     return { success: true };
 });
 
-export const getChatHistory = onCall({ cors: true }, async (req) => {
+export const getChatHistory = onCall(async (req) => {
     const { moduleId, sessionToken } = req.data;
     const snap = await db.collection("chatMessages")
         .where("module_id", "==", moduleId)
@@ -255,7 +262,7 @@ export const getChatHistory = onCall({ cors: true }, async (req) => {
     return snap.docs.map(doc => ({ ...doc.data(), id: doc.id }));
 });
 
-export const saveChatMessage = onCall({ cors: true }, async (req) => {
+export const saveChatMessage = onCall(async (req) => {
     const { moduleId, sessionToken, message } = req.data;
     await db.collection("chatMessages").doc(message.id).set({
         ...message,
@@ -266,7 +273,7 @@ export const saveChatMessage = onCall({ cors: true }, async (req) => {
     return { success: true };
 });
 
-export const updateMessageFeedback = onCall({ cors: true }, async (req) => {
+export const updateMessageFeedback = onCall(async (req) => {
     if (!req.auth?.uid) throw new HttpsError("unauthenticated", "Authentication required.");
     const { messageId, feedback } = req.data;
     await db.collection("chatMessages").doc(messageId).update({ feedback });
@@ -290,9 +297,9 @@ interface LogTutorInteractionData {
     aliases?: DetectedAlias[];
 }
 
-export const logTutorInteraction = onCall({ secrets: ["API_KEY"], cors: true }, async (req) => {
+export const logTutorInteraction = onCall({ secrets: ["API_KEY"] }, async (req: CallableRequest<LogTutorInteractionData>) => {
     const uid = req.auth?.uid;
-    if (!uid) throw new HttpsError("unauthenticated", "Authentication required.");
+    if (!uid) throw new HttpsError("unauthenticated", "You must be logged in.");
 
     const { userQuestion, tutorResponse, moduleId, stepIndex, templateId, stepTitle, remoteType, aliases } = req.data;
 
@@ -357,7 +364,7 @@ export const logTutorInteraction = onCall({ secrets: ["API_KEY"], cors: true }, 
     return { status: "logged" };
 });
 
-export const findSimilarInteractions = onCall({ secrets: ["API_KEY"], cors: true }, async (req) => {
+export const findSimilarInteractions = onCall({ secrets: ["API_KEY"] }, async (req) => {
     if (!req.auth?.uid) throw new HttpsError("unauthenticated", "Authentication required.");
     const { question, moduleId } = req.data;
     const queryVector = await generateEmbedding(question);
@@ -407,7 +414,7 @@ const refinementSchema = {
 };
 
 export const refineStep = onCall(
-    { secrets: ["API_KEY"], cors: true },
+    { secrets: ["API_KEY"] },
     async (request): Promise<{ suggestion: any }> => {
         if (!request.auth?.uid) throw new HttpsError("unauthenticated", "Authentication required.");
         const ai = getAiClient();
@@ -455,7 +462,7 @@ export const refineStep = onCall(
     }
 );
 
-export const flagQuestion = onCall({ cors: true },
+export const flagQuestion = onCall(
     async (request): Promise<{ status: string; issueId: string }> => {
         const uid = request.auth?.uid;
         if (!uid) {
@@ -476,7 +483,7 @@ export const flagQuestion = onCall({ cors: true },
     }
 );
 
-export const getFlaggedQuestions = onCall({ cors: true },
+export const getFlaggedQuestions = onCall(
     async (request): Promise<any[]> => {
         const uid = request.auth?.uid;
         if (!uid) throw new HttpsError("unauthenticated", "You must be logged in.");
@@ -498,7 +505,7 @@ export const getFlaggedQuestions = onCall({ cors: true },
     }
 );
 
-export const getCheckpointFailureStats = onCall({ cors: true }, async (request) => {
+export const getCheckpointFailureStats = onCall(async (request) => {
     const { moduleId } = request.data;
     const snapshot = await db.collection("checkpointResponses")
         .where("module_id", "==", moduleId)
@@ -517,7 +524,7 @@ export const getCheckpointFailureStats = onCall({ cors: true }, async (request) 
     return Object.values(stats).sort((a, b) => b.count - a.count);
 });
 
-export const getQuestionFrequency = onCall({ cors: true }, async (request) => {
+export const getQuestionFrequency = onCall(async (request) => {
     const { moduleId } = request.data;
     if (!moduleId) throw new HttpsError("invalid-argument", "Module ID is required.");
 
@@ -539,7 +546,7 @@ export const getQuestionFrequency = onCall({ cors: true }, async (request) => {
 
 // --- Suggestions Service Functions ---
 
-export const submitSuggestion = onCall({ cors: true }, async (req) => {
+export const submitSuggestion = onCall(async (req) => {
     const uid = req.auth?.uid; // Can be anonymous
     const { moduleId, stepIndex, text } = req.data;
     const ref = await db.collection("traineeSuggestions").add({
@@ -553,7 +560,7 @@ export const submitSuggestion = onCall({ cors: true }, async (req) => {
     return { id: ref.id, ...req.data };
 });
 
-export const deleteTraineeSuggestion = onCall({ cors: true }, async (req) => {
+export const deleteTraineeSuggestion = onCall(async (req) => {
     if (!req.auth?.uid) throw new HttpsError("unauthenticated", "Authentication required.");
     await db.collection("traineeSuggestions").doc(req.data.suggestionId).delete();
     return { success: true };
@@ -561,7 +568,7 @@ export const deleteTraineeSuggestion = onCall({ cors: true }, async (req) => {
 
 // --- Checkpoint Service Functions ---
 
-export const logCheckpointResponse = onCall({ cors: true }, async (req) => {
+export const logCheckpointResponse = onCall(async (req) => {
     const { moduleId, userId, stepIndex, checkpointText, answer, comment } = req.data;
     await db.collection("checkpointResponses").add({
         module_id: moduleId,
@@ -577,7 +584,7 @@ export const logCheckpointResponse = onCall({ cors: true }, async (req) => {
 
 // --- Feedback Service Functions (for Live Coach) ---
 
-export const logAiFeedback = onCall({ cors: true }, async (req) => {
+export const logAiFeedback = onCall(async (req) => {
     const { sessionToken, moduleId, stepIndex, userPrompt, aiResponse, feedback } = req.data;
     const ref = await db.collection("feedbackLogs").add({
         sessionToken, moduleId, stepIndex, userPrompt, aiResponse, feedback,
@@ -586,7 +593,7 @@ export const logAiFeedback = onCall({ cors: true }, async (req) => {
     return { logId: ref.id };
 });
 
-export const updateFeedbackWithFix = onCall({ secrets: ["API_KEY"], cors: true }, async (req) => {
+export const updateFeedbackWithFix = onCall({ secrets: ["API_KEY"] }, async (req) => {
     const { logId, fixOrRating } = req.data;
     const updateData: { feedback: "good" | "bad", userFixText?: string, fixEmbedding?: number[] } = {
         feedback: fixOrRating === "good" ? "good" : "bad",
@@ -602,7 +609,7 @@ export const updateFeedbackWithFix = onCall({ secrets: ["API_KEY"], cors: true }
 
 // --- Routines Service Functions ---
 
-export const saveRoutine = onCall({ cors: true }, async (req) => {
+export const saveRoutine = onCall(async (req) => {
     const uid = req.auth?.uid;
     if (!uid) throw new HttpsError("unauthenticated", "Authentication required.");
 
@@ -625,7 +632,7 @@ export const saveRoutine = onCall({ cors: true }, async (req) => {
     }
 });
 
-export const getRoutineForIntent = onCall({ cors: true }, async (req) => {
+export const getRoutineForIntent = onCall(async (req) => {
     const { templateId, intent } = req.data;
     const snap = await db.collection("routines")
         .where("templateId", "==", templateId)
@@ -639,7 +646,7 @@ export const getRoutineForIntent = onCall({ cors: true }, async (req) => {
     return { id: doc.id, ...doc.data() };
 });
 
-export const getSignedRoutineVideoUploadUrl = onCall({ cors: true }, async (req) => {
+export const getSignedRoutineVideoUploadUrl = onCall(async (req) => {
     const uid = req.auth?.uid;
     if (!uid) throw new HttpsError("unauthenticated", "Authentication required.");
 
@@ -658,45 +665,61 @@ export const getSignedRoutineVideoUploadUrl = onCall({ cors: true }, async (req)
 });
 
 // --- Text-to-Speech Service ---
-export const textToSpeech = onCall({ secrets: ["TTS_API_KEY"], cors: true }, async (req) => {
+export const textToSpeech = onCall({ secrets: ["TTS_API_KEY"] }, async (req) => {
     const { text, voiceId } = req.data;
-    const TTS_API_KEY = process.env.TTS_API_KEY;
+    const GOOGLE_API_KEY = process.env.TTS_API_KEY;
 
-    if (!TTS_API_KEY) {
-        logger.error("TTS API key is not configured as a secret.");
+    if (!GOOGLE_API_KEY) {
+        logger.error("Google Cloud TTS API key is not configured as a secret named TTS_API_KEY.");
         throw new HttpsError("internal", "TTS service is not configured.");
     }
     if (!text || !voiceId) {
-        throw new HttpsError("invalid-argument", "Text and voiceId are required.");
+        throw new HttpsError("invalid-argument", "Text and voiceId (a Google Cloud TTS voice name) are required.");
     }
 
-    const ttsUrl = `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`;
+    const ttsUrl = `https://texttospeech.googleapis.com/v1/text:synthesize?key=${GOOGLE_API_KEY}`;
+
+    // Extract language code from the voice name, e.g., "en-US-Wavenet-D" -> "en-US"
+    const languageCode = voiceId.split("-").slice(0, 2).join("-");
+
     try {
         const response = await fetch(ttsUrl, {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
-                "xi-api-key": TTS_API_KEY,
             },
             body: JSON.stringify({
-                text: text,
-                model_id: "eleven_monolingual_v1",
+                input: {
+                    text: text,
+                },
+                voice: {
+                    languageCode: languageCode,
+                    name: voiceId,
+                },
+                audioConfig: {
+                    audioEncoding: "MP3",
+                },
             }),
         });
 
         if (!response.ok) {
-            const errorBody = await response.text();
-            logger.error(`ElevenLabs API error: ${response.status}`, errorBody);
-            throw new HttpsError("internal", `Failed to generate audio. Status: ${response.status}`);
+            const errorBody = await response.json();
+            logger.error(`Google Cloud TTS API error: ${response.status}`, errorBody);
+            const errorMessage = errorBody?.error?.message || `Failed to generate audio. Status: ${response.status}`;
+            throw new HttpsError("internal", errorMessage);
         }
 
-        const audioBuffer = await response.arrayBuffer();
-        // Return as base64 string for JSON compatibility
-        const base64Audio = Buffer.from(audioBuffer).toString("base64");
+        const data = await response.json() as { audioContent: string };
 
-        return { audioContent: base64Audio };
+        if (!data.audioContent) {
+            logger.error("Google Cloud TTS API response did not contain audioContent.");
+            throw new HttpsError("internal", "TTS service returned an empty audio response.");
+        }
+
+        // The API returns the audio content as a base64-encoded string, which is what the client expects.
+        return { audioContent: data.audioContent };
     } catch (error) {
-        logger.error("Error calling TTS service:", error);
+        logger.error("Error calling Google Cloud TTS service:", error);
         if (error instanceof HttpsError) throw error;
         throw new HttpsError("internal", "An error occurred while generating speech.");
     }
