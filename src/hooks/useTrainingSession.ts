@@ -37,7 +37,7 @@ export function useTrainingSession(moduleId: string, sessionToken: string, total
     }, [sessionState]);
 
     // Mutation to save session state to the database
-    const { mutate: persistSession } = useMutation({
+    const { mutate: persistSession, isPending: isSaving } = useMutation({
         mutationFn: (newState: Omit<SessionState, 'moduleId' | 'sessionToken'>) =>
             saveSession({ moduleId, sessionToken, ...newState }),
         onSuccess: (_data, variables) => {
@@ -66,15 +66,18 @@ export function useTrainingSession(moduleId: string, sessionToken: string, total
             isCompleted: sessionState?.isCompleted ?? false,
         };
 
-        const localState = { currentStepIndex, userActions, isCompleted };
+        // More performant change detection
+        const hasChanges =
+            currentStateInDb.currentStepIndex !== currentStepIndex ||
+            currentStateInDb.isCompleted !== isCompleted ||
+            JSON.stringify(currentStateInDb.userActions) !== JSON.stringify(userActions);
 
-        // Only save if there's a change
-        if (JSON.stringify(currentStateInDb) === JSON.stringify(localState)) {
+        if (!hasChanges) {
             return;
         }
 
         const handler = setTimeout(() => {
-            persistSession(localState);
+            persistSession({ currentStepIndex, userActions, isCompleted });
         }, 1000); // Debounce for 1 second
 
         return () => {
@@ -121,5 +124,6 @@ export function useTrainingSession(moduleId: string, sessionToken: string, total
         resetSession,
         isLoadingSession, // Expose loading state
         goBack,
+        isSaving, // Expose saving state for UI feedback
     };
 }

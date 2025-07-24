@@ -78,6 +78,21 @@ export const ProcessSteps: React.FC<ProcessStepsProps> = ({
     }
   }, [currentStepIndex]);
 
+  // [UX] Auto-collapse completed steps when a new one is activated
+  useEffect(() => {
+    setCollapsedSteps(prev => {
+      const newSet = new Set(prev);
+      // Collapse all steps before the current one
+      for (let i = 0; i < currentStepIndex; i++) {
+        newSet.add(i);
+      }
+      // Ensure the current step is not collapsed
+      newSet.delete(currentStepIndex);
+      return newSet;
+    });
+  }, [currentStepIndex]);
+
+
   const toggleCollapse = (e: React.MouseEvent, index: number) => {
     e.stopPropagation();
     setCollapsedSteps(prev => {
@@ -91,12 +106,24 @@ export const ProcessSteps: React.FC<ProcessStepsProps> = ({
     });
   };
 
+  // [UX] Add Keyboard Shortcut for "Mark as Done"
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      // Only trigger if the current step is active and has no checkpoint
+      if (currentStepIndex !== -1 && !steps[currentStepIndex]?.checkpoint && e.key.toLowerCase() === 'm') {
+        markStep('done');
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [currentStepIndex, steps, markStep]);
+
   return (
     <div className="p-4 space-y-3 overflow-y-auto flex-1">
       {steps.map((step, index) => {
         const isActive = currentStepIndex === index;
         const isCompleted = currentStepIndex > index;
-        const isCollapsed = isCompleted && collapsedSteps.has(index);
+        const isCollapsed = collapsedSteps.has(index);
         const hotspotCount = hotspotSteps.get(index);
 
         return (
@@ -112,8 +139,8 @@ export const ProcessSteps: React.FC<ProcessStepsProps> = ({
               }`}
           >
             <div className="flex justify-between items-center">
-              <div className="flex items-center gap-2">
-                <h3 className="font-bold text-md text-slate-800 dark:text-slate-100">{step.title}</h3>
+              <div className="flex items-center gap-2 min-w-0">
+                <h3 className="font-bold text-md text-slate-800 dark:text-slate-100 truncate" title={step.title}>{step.title}</h3>
                 {isAdmin && hotspotCount && hotspotCount > 0 && (
                   <div className="flex items-center gap-1 text-yellow-600 dark:text-yellow-400" title={`${hotspotCount} trainee(s) failed this checkpoint`}>
                     <AlertTriangleIcon className="h-4 w-4" />
@@ -130,6 +157,9 @@ export const ProcessSteps: React.FC<ProcessStepsProps> = ({
                     onClick={(e) => toggleCollapse(e, index)}
                     className="p-1 text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 rounded-full"
                     aria-label={isCollapsed ? 'Expand step' : 'Collapse step'}
+                    aria-expanded={!isCollapsed}
+                    aria-controls={`step-content-${index}`}
+                    data-testid={`step-${index}-collapse-btn`}
                   >
                     {isCollapsed ? <ArrowDownIcon className="h-4 w-4" /> : <ArrowUpIcon className="h-4 w-4" />}
                   </button>
@@ -138,7 +168,7 @@ export const ProcessSteps: React.FC<ProcessStepsProps> = ({
             </div>
 
             {!isCollapsed && (
-              <div className="mt-2 space-y-3">
+              <div id={`step-content-${index}`} className="mt-2 space-y-3">
                 <p className="text-sm text-slate-600 dark:text-slate-300 whitespace-pre-wrap">{step.description}</p>
                 {isActive && (
                   <div className="space-y-3">
@@ -169,6 +199,7 @@ export const ProcessSteps: React.FC<ProcessStepsProps> = ({
                         </p>
                         <button
                           onClick={onSuggestionSubmit}
+                          data-testid="propose-change-btn"
                           className="mt-2 text-xs bg-indigo-600 text-white font-semibold py-1 px-3 rounded-full hover:bg-indigo-700 flex items-center gap-1"
                         >
                           <PencilIcon className="h-3 w-3" /> Propose this change to the owner
@@ -191,13 +222,14 @@ export const ProcessSteps: React.FC<ProcessStepsProps> = ({
                 <button
                   onClick={goBack}
                   disabled={index === 0}
+                  data-testid={`step-${index}-back-btn`}
                   className="flex items-center gap-2 text-sm font-semibold text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white disabled:opacity-50 transition-colors"
                 >
                   <ArrowLeftIcon className="h-4 w-4" />
                   Back
                 </button>
                 {!step.checkpoint && (
-                  <button onClick={() => markStep('done')} className="bg-indigo-600 text-white font-semibold px-4 py-2 rounded-lg hover:bg-indigo-700">
+                  <button onClick={() => markStep('done')} data-testid={`step-${index}-done-btn`} className="bg-indigo-600 text-white font-semibold px-4 py-2 rounded-lg hover:bg-indigo-700">
                     Mark as Done
                   </button>
                 )}

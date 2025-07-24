@@ -26,6 +26,7 @@ export {
     Info as InfoIcon,
     Lightbulb as LightbulbIcon,
     Link as LinkIcon,
+    Loader2 as LoaderIcon,
     LogOut as LogOutIcon,
     Menu as MenuIcon,
     MessageSquare as MessageSquareIcon,

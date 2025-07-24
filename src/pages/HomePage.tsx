@@ -19,6 +19,23 @@ interface TemplateCategory {
     templates: Template[];
 }
 
+// Skeleton loader component for template cards to improve perceived performance
+const TemplateCardSkeleton = () => (
+    <div className="w-full text-left p-6 bg-white dark:bg-slate-800 rounded-xl shadow-md dark:shadow-lg">
+        <div className="flex items-start gap-4 mb-4 animate-pulse">
+            <div className="bg-slate-200 dark:bg-slate-700 p-3 rounded-lg">
+                <div className="h-6 w-6 bg-slate-300 dark:bg-slate-600 rounded"></div>
+            </div>
+            <div className="flex-1 space-y-2 pt-1">
+                <div className="h-5 bg-slate-200 dark:bg-slate-700 rounded w-3/4"></div>
+                <div className="h-4 bg-slate-200 dark:bg-slate-700 rounded w-1/2"></div>
+            </div>
+        </div>
+        <div className="w-full h-9 bg-slate-200 dark:bg-slate-700 rounded-lg animate-pulse"></div>
+    </div>
+);
+
+
 const HomePage: React.FC = () => {
     const navigate = useNavigate();
     const { isAuthenticated, user, signOut } = useAuth();
@@ -69,12 +86,19 @@ const HomePage: React.FC = () => {
                         onClick={toggleTheme}
                         className="p-2 rounded-full bg-slate-100 dark:bg-slate-700/50 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700"
                         aria-label="Toggle theme"
+                        title="Toggle theme"
+                        data-testid="theme-toggle-btn"
                     >
-                        {theme === 'dark' ? <SunIcon className="h-5 w-5" /> : <MoonIcon className="h-5 w-5" />}
+                        {theme === 'dark' ? <SunIcon className="h-5 w-5" title="Switch to light theme" /> : <MoonIcon className="h-5 w-5" title="Switch to dark theme" />}
                     </button>
                     {isAuthenticated && user ? (
                         <>
-                            <Link to="/dashboard" className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold py-2 px-4 rounded-full transition-colors">
+                            <Link
+                                to="/dashboard"
+                                className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold py-2 px-4 rounded-full transition-colors"
+                                title="Go to Dashboard"
+                                data-testid="dashboard-link"
+                            >
                                 <BarChartIcon className="h-5 w-5" />
                                 <span>Dashboard</span>
                             </Link>
@@ -82,6 +106,7 @@ const HomePage: React.FC = () => {
                                 onClick={signOut}
                                 className="flex items-center gap-2 bg-slate-200 dark:bg-slate-700 hover:bg-red-500/20 dark:hover:bg-red-500/80 text-slate-700 dark:text-white text-sm font-semibold py-2 px-4 rounded-full transition-colors"
                                 title="Logout"
+                                data-testid="signout-btn"
                             >
                                 <LogOutIcon className="h-5 w-5" />
                             </button>
@@ -90,6 +115,7 @@ const HomePage: React.FC = () => {
                         <button
                             onClick={() => navigate('/login')}
                             className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold py-2 px-4 rounded-full transition-colors"
+                            data-testid="login-btn"
                         >
                             <UserIcon className="h-5 w-5" />
                             <span>Admin Login</span>
@@ -104,16 +130,22 @@ const HomePage: React.FC = () => {
                 <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-6 text-center">Start with a Template</h2>
                 <div className="mb-6 max-w-md mx-auto">
                     <div className="relative">
-                        <SearchIcon className="absolute inset-y-0 left-0 pl-3 h-full w-5 text-slate-400" />
+                        <SearchIcon className="absolute inset-y-0 left-0 pl-3 h-full w-5 text-slate-400 pointer-events-none" />
                         <input
                             type="text"
                             placeholder="Search templates..."
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
-                            className="w-full pl-10 pr-4 py-2 border border-slate-300 dark:border-slate-700 rounded-full bg-slate-100 dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                            className="w-full pl-10 pr-10 py-2 border border-slate-300 dark:border-slate-700 rounded-full bg-slate-100 dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                            data-testid="template-search-input"
                         />
                         {searchTerm && (
-                            <button onClick={() => setSearchTerm('')} className="absolute inset-y-0 right-0 pr-3 flex items-center">
+                            <button
+                                onClick={() => setSearchTerm('')}
+                                className="absolute inset-y-0 right-0 pr-3 flex items-center"
+                                aria-label="Clear search"
+                                title="Clear search"
+                            >
                                 <XIcon className="h-5 w-5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200" />
                             </button>
                         )}
@@ -121,8 +153,20 @@ const HomePage: React.FC = () => {
                 </div>
 
                 {isLoading ? (
-                    <div className="text-center py-10">
-                        <p className="text-slate-500 dark:text-slate-400">Loading templates...</p>
+                    <div className="space-y-8">
+                        <div>
+                            <div className="h-6 bg-slate-200 dark:bg-slate-700 rounded w-1/4 mb-4 animate-pulse"></div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <TemplateCardSkeleton />
+                                <TemplateCardSkeleton />
+                            </div>
+                        </div>
+                        <div>
+                            <div className="h-6 bg-slate-200 dark:bg-slate-700 rounded w-1/3 mb-4 animate-pulse"></div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <TemplateCardSkeleton />
+                            </div>
+                        </div>
                     </div>
                 ) : (
                     <div className="space-y-8">
@@ -152,7 +196,12 @@ const HomePage: React.FC = () => {
                                 {searchTerm ? "Didn't find what you need?" : "Or, start from scratch"}
                             </h3>
                             <p className="text-slate-500 dark:text-slate-400 mb-4">Create a custom training module from a video, device model, or manual.</p>
-                            <Link to="/create" className="inline-flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white font-semibold py-2 px-4 rounded-lg transition-colors">
+                            <Link
+                                to="/create"
+                                className="inline-flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white font-semibold py-2 px-4 rounded-lg transition-colors"
+                                data-testid="create-custom-module-link"
+                                title="Create a custom module from scratch"
+                            >
                                 <LightbulbIcon className="h-5 w-5" />
                                 <span>Create Custom Module</span>
                             </Link>

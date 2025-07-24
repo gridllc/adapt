@@ -204,6 +204,9 @@ const TrainingPage: React.FC = () => {
 
   const handleSeekTo = useCallback((time: number) => {
     if (videoRef.current) {
+      // [UX] Prevent jarring seeks if the time is already very close
+      if (Math.abs(videoRef.current.currentTime - time) < 0.5) return;
+
       videoRef.current.currentTime = time;
       if (videoRef.current.paused) {
         videoRef.current.play().catch(console.error);
@@ -213,10 +216,8 @@ const TrainingPage: React.FC = () => {
 
   useEffect(() => {
     const step = steps?.[currentStepIndex];
-    if (step && videoRef.current) {
-      if (Math.abs(videoRef.current.currentTime - step.start) > 0.5) {
-        handleSeekTo(step.start);
-      }
+    if (step) {
+      handleSeekTo(step.start);
     }
   }, [currentStepIndex, steps, handleSeekTo]);
 
@@ -351,6 +352,12 @@ const TrainingPage: React.FC = () => {
     dispatch({ type: 'SET_CHAT_PROMPT', payload: prompt });
   }, [steps, currentStepIndex]);
 
+  const progressPercentage = useMemo(() => {
+    if (isCompleted) return 100;
+    if (!steps || steps.length === 0) return 0;
+    return (currentStepIndex / steps.length) * 100;
+  }, [currentStepIndex, steps, isCompleted]);
+
 
   if (isLoadingModule || isLoadingSession || !sessionToken) {
     return (
@@ -386,6 +393,11 @@ const TrainingPage: React.FC = () => {
         <h1 className="text-2xl font-bold text-slate-900 dark:text-white text-center absolute left-1/2 -translate-x-1/2">{moduleData.title}</h1>
         <span className="font-bold text-lg text-indigo-500 dark:text-indigo-400">Adapt</span>
       </header>
+
+      {/* [UX] Progress Indicator */}
+      <div className="h-1 w-full bg-slate-200 dark:bg-slate-700">
+        <div style={{ width: `${progressPercentage}%` }} className="h-full bg-indigo-500 transition-all duration-500" />
+      </div>
 
       <main className="grid grid-cols-1 lg:grid-cols-3 gap-6 p-6 max-w-7xl mx-auto">
         <div className="lg:col-span-2 bg-white dark:bg-slate-800 rounded-lg shadow-xl overflow-hidden min-h-[400px]">
@@ -435,6 +447,7 @@ const TrainingPage: React.FC = () => {
               <div className="flex border-b border-slate-200 dark:border-slate-700">
                 <button
                   onClick={() => dispatch({ type: 'SET_ACTIVE_TAB', payload: 'steps' })}
+                  aria-current={activeTab === 'steps' ? 'page' : undefined}
                   className={`flex-1 p-4 font-semibold text-sm flex items-center justify-center gap-2 transition-colors ${activeTab === 'steps' ? 'bg-slate-100 dark:bg-slate-700 text-slate-900 dark:text-white' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100/50 dark:hover:bg-slate-700/50'
                     }`}
                 >
@@ -443,6 +456,7 @@ const TrainingPage: React.FC = () => {
                 </button>
                 <button
                   onClick={() => dispatch({ type: 'SET_ACTIVE_TAB', payload: 'transcript' })}
+                  aria-current={activeTab === 'transcript' ? 'page' : undefined}
                   className={`flex-1 p-4 font-semibold text-sm flex items-center justify-center gap-2 transition-colors ${activeTab === 'transcript' ? 'bg-slate-100 dark:bg-slate-700 text-slate-900 dark:text-white' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100/50 dark:hover:bg-slate-700/50'
                     }`}
                 >
@@ -451,6 +465,7 @@ const TrainingPage: React.FC = () => {
                 </button>
                 <button
                   onClick={() => dispatch({ type: 'SET_ACTIVE_TAB', payload: 'tutor' })}
+                  aria-current={activeTab === 'tutor' ? 'page' : undefined}
                   className={`flex-1 p-4 font-semibold text-sm flex items-center justify-center gap-2 transition-colors ${activeTab === 'tutor' ? 'bg-slate-100 dark:bg-slate-700 text-slate-900 dark:text-white' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100/50 dark:hover:bg-slate-700/50'
                     }`}
                 >
@@ -507,6 +522,7 @@ const TrainingPage: React.FC = () => {
                   onClose={() => dispatch({ type: 'SET_ACTIVE_TAB', payload: 'steps' })}
                   initialPrompt={initialChatPrompt}
                   isDebug={isDebug}
+                  templateContext={moduleData.metadata?.templateContext}
                 />
               )}
             </>

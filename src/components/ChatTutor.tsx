@@ -9,12 +9,13 @@ import { findSimilarInteractions, logTutorInteraction } from '@/services/tutorLo
 import { flagQuestion } from '@/services/flaggingService';
 import { chatReducer, initialChatState } from '@/reducers/chatReducer';
 import type { ChatMessage, ProcessStep, TutorLog, Routine, TemplateContext } from '@/types';
-import { SendIcon, BotIcon, UserIcon, LinkIcon, SpeakerOnIcon, SpeakerOffIcon, LightbulbIcon, DownloadIcon, MessageSquareIcon, XIcon, CheckCircleIcon, ImageIcon, SparklesIcon, ClockIcon, AlertTriangleIcon, DatabaseIcon, ThumbsUpIcon, ThumbsDownIcon } from './Icons';
+import { SendIcon, BotIcon, UserIcon, LinkIcon, SpeakerOnIcon, SpeakerOffIcon, LightbulbIcon, DownloadIcon, MessageSquareIcon, XIcon, CheckCircleIcon, ImageIcon, SparklesIcon, ClockIcon, AlertTriangleIcon, DatabaseIcon, ThumbsUpIcon, ThumbsDownIcon, LoaderIcon } from './Icons';
 import { useToast } from '@/hooks/useToast';
 import { useAuth } from '@/hooks/useAuth';
 import type { Chat, Content, GroundingChunk } from '@google/genai';
 import { detectAliases } from '@/utils/aliasService';
 import { isRetryMessage } from '@/utils/chatLogic';
+import { parseTimestamp } from '@/utils/timeUtils';
 
 interface ChatTutorProps {
     moduleId: string;
@@ -29,17 +30,6 @@ interface ChatTutorProps {
     isDebug?: boolean;
     templateContext?: TemplateContext;
 }
-
-const parseTimestamp = (text: string): number | null => {
-    const match = text.match(/\[(?:(\d{2}):)?(\d{2}):(\d{2})\]/);
-    if (match) {
-        const hours = parseInt(match[1] || '0', 10);
-        const minutes = parseInt(match[2], 10);
-        const seconds = parseInt(match[3], 10);
-        return hours * 3600 + minutes * 60 + seconds;
-    }
-    return null;
-};
 
 export const ChatTutor: React.FC<ChatTutorProps> = ({ moduleId, sessionToken, stepsContext, fullTranscript, onTimestampClick, currentStepIndex, steps, onClose, initialPrompt, isDebug = false, templateContext }) => {
     const queryClient = useQueryClient();
@@ -87,6 +77,27 @@ export const ChatTutor: React.FC<ChatTutorProps> = ({ moduleId, sessionToken, st
             );
             dispatch({ type: 'SET_MESSAGES', payload: updatedMessages });
             addToast('success', 'Feedback Received', 'Thank you for helping improve the AI.');
+
+            if (variables.feedback === 'good') {
+                const messageIndex = updatedMessages.findIndex((msg) => msg.id === variables.messageId);
+                if (messageIndex > 0) {
+                    const aiMessage = updatedMessages[messageIndex];
+                    const userMessage = updatedMessages[messageIndex - 1];
+
+                    if (aiMessage.role === 'model' && userMessage.role === 'user' && !flaggedMessageIds[aiMessage.id]) {
+                        addToast('info', 'Helpful Answer?', 'Would you like to submit this answer to the owner as a good example?', {
+                            duration: 10000,
+                            action: {
+                                label: 'Submit Example',
+                                onClick: () => {
+                                    flagResponseForReview({ userQuestion: userMessage.text, aiResponse: aiMessage.text });
+                                    setFlaggedMessageIds(prev => ({ ...prev, [aiMessage.id]: true }));
+                                }
+                            }
+                        });
+                    }
+                }
+            }
         },
         onError: (err) => {
             const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred.';
@@ -634,6 +645,7 @@ export const ChatTutor: React.FC<ChatTutorProps> = ({ moduleId, sessionToken, st
             <div className="p-4 border-t border-slate-200 dark:border-slate-700 flex-shrink-0">
                 <form onSubmit={handleFormSubmit} className="flex items-center gap-2 bg-slate-100 dark:bg-slate-900/80 rounded-full border border-slate-300 dark:border-slate-700 p-1.5 focus-within:ring-2 focus-within:ring-indigo-500 transition-all">
                     <input
+                        data-testid="chat-input"
                         type="text"
                         value={input}
                         onChange={(e) => dispatch({ type: 'SET_INPUT', payload: e.target.value })}
@@ -642,12 +654,13 @@ export const ChatTutor: React.FC<ChatTutorProps> = ({ moduleId, sessionToken, st
                         disabled={isLoading || !!error || isLoadingHistory}
                     />
                     <button
+                        data-testid="send-button"
                         type="submit"
                         disabled={isLoading || !input.trim() || !!error || isLoadingHistory}
-                        className="bg-indigo-600 text-white p-2 rounded-full disabled:bg-slate-400 dark:disabled:bg-slate-500 disabled:cursor-not-allowed hover:bg-indigo-700 transition-colors"
+                        className="bg-indigo-600 text-white p-2 rounded-full disabled:bg-slate-400 dark:disabled:bg-slate-500 disabled:cursor-not-allowed hover:bg-indigo-700 transition-colors flex items-center justify-center h-9 w-9"
                         aria-label="Send message"
                     >
-                        <SendIcon className="h-5 w-5" />
+                        {isLoading ? <LoaderIcon className="h-5 w-5 animate-spin" /> : <SendIcon className="h-5 w-5" />}
                     </button>
                 </form>
             </div>

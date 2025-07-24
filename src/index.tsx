@@ -1,35 +1,39 @@
 
-import React from 'react';
+
+import React, { Suspense } from 'react';
 import ReactDOM from 'react-dom/client';
 import { createBrowserRouter, RouterProvider } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 // Corrected import paths based on the project file structure
 import RootLayout from '@/RootLayout';
-import HomePage from '@/pages/HomePage';
-import TrainingPage from '@/pages/TrainingPage';
-import CreatePage from '@/pages/CreatePage';
-import EditPage from '@/pages/EditPage';
-import LoginPage from '@/pages/LoginPage';
-import ForgotPasswordPage from '@/pages/ForgotPasswordPage';
-import UpdatePasswordPage from '@/pages/UpdatePasswordPage';
-import DashboardPage from '@/pages/DashboardPage';
-import RoutineDashboardPage from '@/pages/RoutineDashboardPage';
-import RoutineEditorPage from '@/pages/RoutineEditorPage';
-import FaqPage from '@/pages/FaqPage';
-import NotFoundPage from '@/pages/NotFoundPage';
 import ProtectedRoute from '@/components/ProtectedRoute';
 import { ToastProvider } from '@/hooks/useToast';
 import { ThemeProvider } from '@/hooks/useTheme';
 import { AuthProvider } from '@/hooks/useAuth';
 import '@/index.css';
-import LiveCoachPage from '@/pages/LiveCoachPage';
-import SessionReviewPage from '@/pages/SessionReviewPage';
 import { PwaUpdater } from '@/components/PwaUpdater';
-import QuestionLogDetailPage from '@/pages/QuestionLogDetailPage';
 import AdminLayout from '@/components/AdminLayout';
 import { auth } from '@/firebase';
-import TemplateWizardPage from '@/pages/TemplateWizardPage';
+
+// Lazy load pages for better performance
+const HomePage = React.lazy(() => import('@/pages/HomePage'));
+const TrainingPage = React.lazy(() => import('@/pages/TrainingPage'));
+const CreatePage = React.lazy(() => import('@/pages/CreatePage'));
+const EditPage = React.lazy(() => import('@/pages/EditPage'));
+const LoginPage = React.lazy(() => import('@/pages/LoginPage'));
+const ForgotPasswordPage = React.lazy(() => import('@/pages/ForgotPasswordPage'));
+const UpdatePasswordPage = React.lazy(() => import('@/pages/UpdatePasswordPage'));
+const DashboardPage = React.lazy(() => import('@/pages/DashboardPage'));
+const RoutineDashboardPage = React.lazy(() => import('@/pages/RoutineDashboardPage'));
+const RoutineEditorPage = React.lazy(() => import('@/pages/RoutineEditorPage'));
+const FaqPage = React.lazy(() => import('@/pages/FaqPage'));
+const NotFoundPage = React.lazy(() => import('@/pages/NotFoundPage'));
+const LiveCoachPage = React.lazy(() => import('@/pages/LiveCoachPage'));
+const SessionReviewPage = React.lazy(() => import('@/pages/SessionReviewPage'));
+const QuestionLogDetailPage = React.lazy(() => import('@/pages/QuestionLogDetailPage'));
+const TemplateWizardPage = React.lazy(() => import('@/pages/TemplateWizardPage'));
+
 
 // Expose Firebase auth for debugging in development mode
 if (import.meta.env.DEV) {
@@ -131,6 +135,11 @@ const router = createBrowserRouter(
     ]
 );
 
+const LoadingFallback = () => (
+    <div className="flex items-center justify-center h-screen bg-white dark:bg-slate-900">
+        <p className="text-xl text-slate-700 dark:text-slate-300">Loading page...</p>
+    </div>
+);
 
 const root = ReactDOM.createRoot(rootElement);
 root.render(
@@ -139,7 +148,9 @@ root.render(
             <ThemeProvider>
                 <AuthProvider debug={import.meta.env.DEV}>
                     <ToastProvider>
-                        <RouterProvider router={router} />
+                        <Suspense fallback={<LoadingFallback />}>
+                            <RouterProvider router={router} />
+                        </Suspense>
                         <PwaUpdater />
                     </ToastProvider>
                 </AuthProvider>
