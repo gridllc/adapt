@@ -3,10 +3,11 @@ import { functions } from '@/firebase';
 import { httpsCallable } from 'firebase/functions';
 
 
-const getQuestionFrequencyFn = httpsCallable<{ moduleId: string }, QuestionStats[]>(functions, 'getQuestionFrequency');
-const getTutorLogsFn = httpsCallable<{ moduleId: string }, TutorLogRow[]>(functions, 'getTutorLogs');
-const getAllTutorLogsFn = httpsCallable<void, TutorLogRow[]>(functions, 'getAllTutorLogs');
-const getQuestionLogsByQuestionFn = httpsCallable<{
+// Callable function definitions initialized once for performance.
+const _getQuestionFrequencyFn = httpsCallable<{ moduleId: string }, QuestionStats[]>(functions, 'getQuestionFrequency');
+const _getTutorLogsFn = httpsCallable<{ moduleId: string }, TutorLogRow[]>(functions, 'getTutorLogs');
+const _getAllTutorLogsFn = httpsCallable<void, TutorLogRow[]>(functions, 'getAllTutorLogs');
+const _getQuestionLogsByQuestionFn = httpsCallable<{
     moduleId: string;
     stepIndex: number;
     question: string;
@@ -14,21 +15,41 @@ const getQuestionLogsByQuestionFn = httpsCallable<{
     endDate?: string;
 }, TutorLogRow[]>(functions, 'getQuestionLogsByQuestion');
 
+/**
+ * Fetches the frequency of questions asked for a specific module via the 'getQuestionFrequency' Firebase Function.
+ * @param moduleId The ID of the module.
+ * @returns A promise that resolves to an array of question statistics. Throws on error for react-query to handle.
+ */
 export const getQuestionFrequency = async (moduleId: string): Promise<QuestionStats[]> => {
-    const result = await getQuestionFrequencyFn({ moduleId });
+    const result = await _getQuestionFrequencyFn({ moduleId });
     return result.data;
 };
 
+/**
+ * Fetches all tutor interaction logs for a specific module via the 'getTutorLogs' Firebase Function.
+ * @param moduleId The ID of the module.
+ * @returns A promise that resolves to an array of tutor log rows. Throws on error for react-query to handle.
+ */
 export const getTutorLogs = async (moduleId: string): Promise<TutorLogRow[]> => {
-    const result = await getTutorLogsFn({ moduleId });
+    const result = await _getTutorLogsFn({ moduleId });
     return result.data;
 };
 
+/**
+ * Fetches all tutor interaction logs across all modules via the 'getAllTutorLogs' Firebase Function.
+ * @returns A promise that resolves to an array of all tutor log rows. Throws on error for react-query to handle.
+ */
 export const getAllTutorLogs = async (): Promise<TutorLogRow[]> => {
-    const result = await getAllTutorLogsFn();
+    const result = await _getAllTutorLogsFn();
     return result.data;
 };
 
+/**
+ * Fetches tutor logs for a specific question within a module step via the 'getQuestionLogsByQuestion' Firebase Function.
+ * Allows for optional date filtering.
+ * @param params The parameters for the query, including moduleId, stepIndex, and question.
+ * @returns A promise that resolves to an array of matching tutor log rows. Throws on error for react-query to handle.
+ */
 export const getQuestionLogsByQuestion = async (params: {
     moduleId: string;
     stepIndex: number;
@@ -36,7 +57,7 @@ export const getQuestionLogsByQuestion = async (params: {
     startDate?: string;
     endDate?: string;
 }): Promise<TutorLogRow[]> => {
-    const result = await getQuestionLogsByQuestionFn(params);
+    const result = await _getQuestionLogsByQuestionFn(params);
     return result.data;
 };
 

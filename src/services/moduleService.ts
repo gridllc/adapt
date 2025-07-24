@@ -8,6 +8,7 @@ import { httpsCallable } from 'firebase/functions';
 
 
 // --- Callable Firebase Functions (v9 SDK) ---
+// Note: Function names must match exactly with those defined in `gemini-functions/src/index.ts`.
 const getModuleFn = httpsCallable<{ moduleId: string }, AppModule | undefined>(functions, 'getModule');
 const getSignedUploadUrlFn = httpsCallable<{ slug: string, contentType: string, fileExtension: string }, { uploadUrl: string, filePath: string }>(functions, 'getSignedUploadUrl');
 const saveModuleFn = httpsCallable<{ moduleData: ModuleForInsert & { video_url: string | null } }, AppModule>(functions, 'saveModule');

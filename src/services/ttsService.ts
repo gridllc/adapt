@@ -11,12 +11,12 @@ const audioCache = new Map<string, string>();
 let currentAudio: HTMLAudioElement | null = null;
 
 // Use the httpsCallable function to securely call our backend function.
-const generateSpeechFn = httpsCallable<{ text: string, voiceId: string }, { audioContent: string }>(functions, 'generateSpeech');
+const _generateSpeechFn = httpsCallable<{ text: string, voiceId: string }, { audioContent: string }>(functions, 'generateSpeech');
 
 /**
  * Plays an audio file from a given URL.
- * @param {string} url - The URL of the audio file to play (can be a blob URL).
- * @returns {Promise<void>} A promise that resolves when the audio has finished playing or an error occurs.
+ * @param url The URL of the audio file to play (can be a blob URL).
+ * @returns A promise that resolves when the audio has finished playing or an error occurs.
  */
 const playAudio = (url: string): Promise<void> => {
     return new Promise((resolve) => {
@@ -54,8 +54,8 @@ const playAudio = (url: string): Promise<void> => {
 /**
  * Fallback function that uses the browser's native Web Speech API.
  * This is used if the primary TTS service fails.
- * @param {string} text - The text to speak.
- * @returns {Promise<void>} A promise that resolves when speech is finished.
+ * @param text The text to speak.
+ * @returns A promise that resolves when speech is finished.
  */
 const speakWithFallbackApi = (text: string): Promise<void> => {
     return new Promise((resolve) => {
@@ -83,15 +83,15 @@ const speakWithFallbackApi = (text: string): Promise<void> => {
 /**
  * Speaks the given text using a high-quality TTS API via a secure Firebase Function, with caching.
  * If the API fails, it gracefully falls back to the browser's native speech synthesis.
- * @param {string} text - The text to be spoken.
- * @param {string} [character='system'] - The persona to use for the voice.
- * @returns {Promise<void>} A promise that resolves when speech has finished.
+ * @param text The text to be spoken.
+ * @param character The persona to use for the voice (e.g., 'system', 'coach'). Defaults to 'system'.
+ * @returns A promise that resolves when speech has finished.
  */
 export async function speak(text: string, character: string = 'system'): Promise<void> {
     const voiceId = getVoiceIdForCharacter(character);
     const cacheKey = `${voiceId}-${text}`;
 
-    // 1. Check cache first
+    // 1. Check cache first for immediate playback.
     if (audioCache.has(cacheKey)) {
         const audioUrl = audioCache.get(cacheKey);
         if (audioUrl) {
@@ -99,9 +99,9 @@ export async function speak(text: string, character: string = 'system'): Promise
         }
     }
 
-    // 2. Fetch from high-quality TTS API via Firebase Function
+    // 2. Fetch from high-quality TTS API via Firebase Function.
     try {
-        const result = await generateSpeechFn({ text, voiceId });
+        const result = await _generateSpeechFn({ text, voiceId });
         const { audioContent: base64Audio } = result.data;
 
         if (!base64Audio) {
@@ -130,7 +130,7 @@ export async function speak(text: string, character: string = 'system'): Promise
         return playAudio(audioUrl);
 
     } catch (err) {
-        // 3. Graceful fallback to browser's native TTS
+        // 3. Graceful fallback to browser's native TTS.
         console.warn(`High-quality TTS failed: ${err instanceof Error ? err.message : 'Unknown error'}. Falling back to native speech.`);
         return speakWithFallbackApi(text);
     }

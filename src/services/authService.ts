@@ -27,7 +27,7 @@ export async function signUp(
     { email, password }: SignUpWithPasswordCredentials
 ): Promise<AuthResponse> {
     if (!password) {
-        return { user: null, error: new Error('Password is required for sign up.') as AuthError };
+        return { user: null, error: new Error('Password is required for sign up.') as unknown as AuthError };
     }
     try {
         const userCred = await createUserWithEmailAndPassword(auth, email, password);
@@ -44,7 +44,7 @@ export async function signInWithPassword(
     { email, password }: SignUpWithPasswordCredentials
 ): Promise<AuthResponse> {
     if (!password) {
-        return { user: null, error: new Error('Password is required for sign in.') as AuthError };
+        return { user: null, error: new Error('Password is required for sign in.') as unknown as AuthError };
     }
     try {
         const userCred = await signInWithEmailAndPassword(auth, email, password);
@@ -104,7 +104,7 @@ export async function updateUserPassword(
 ): Promise<{ error: AuthError | null }> {
     const user = auth.currentUser;
     if (!user) {
-        return { error: new Error('User not authenticated.') as AuthError };
+        return { error: new Error('User not authenticated.') as unknown as AuthError };
     }
     try {
         await firebaseUpdatePassword(user, newPassword);

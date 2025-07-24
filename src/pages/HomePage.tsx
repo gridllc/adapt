@@ -85,11 +85,10 @@ const HomePage: React.FC = () => {
                     <button
                         onClick={toggleTheme}
                         className="p-2 rounded-full bg-slate-100 dark:bg-slate-700/50 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700"
-                        aria-label="Toggle theme"
-                        title="Toggle theme"
+                        aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
                         data-testid="theme-toggle-btn"
                     >
-                        {theme === 'dark' ? <SunIcon className="h-5 w-5" title="Switch to light theme" /> : <MoonIcon className="h-5 w-5" title="Switch to dark theme" />}
+                        {theme === 'dark' ? <SunIcon className="h-5 w-5" /> : <MoonIcon className="h-5 w-5" />}
                     </button>
                     {isAuthenticated && user ? (
                         <>

@@ -22,12 +22,16 @@ export interface TranscriptAnalysis {
 
 let cachedClient: GoogleGenAI | null = null;
 
+/**
+ * Lazily initializes and returns a singleton instance of the GoogleGenAI client.
+ * This ensures the client is created only once and that the API key is read from the environment variables correctly.
+ * @returns The initialized GoogleGenAI client.
+ * @throws If the VITE_API_KEY environment variable is not set.
+ */
 function getAiClient(): GoogleGenAI {
     if (cachedClient) {
         return cachedClient;
     }
-    // The VITE_API_KEY is set in the frontend hosting environment (e.g., Render, Vercel).
-    // Vite requires the `VITE_` prefix to expose it to the client-side code.
     const apiKey = import.meta.env.VITE_API_KEY;
     if (!apiKey) {
         throw new Error("AI features are unavailable. The VITE_API_KEY is missing from the frontend environment.");
@@ -143,6 +147,11 @@ function parseJson<T>(text: string | undefined): T {
 
 // --- Module Creation Services ---
 
+/**
+ * Transcribes a video file and provides a confidence score for the transcription accuracy.
+ * @param videoFile The video file to process.
+ * @returns A promise that resolves to a TranscriptAnalysis object.
+ */
 export const getTranscriptWithConfidence = async (videoFile: File): Promise<TranscriptAnalysis> => {
     if (import.meta.env.DEV) console.time('[AI Perf] getTranscriptWithConfidence');
 
@@ -183,6 +192,11 @@ The output MUST be a single, valid JSON object adhering to the provided schema.`
     }
 };
 
+/**
+ * Generates a structured training module from a title, transcript, and optional notes.
+ * @param context An object containing the title, transcript, notes, and confidence score.
+ * @returns A promise that resolves to the generated module data.
+ */
 export const generateModuleFromContext = async (context: {
     title: string;
     transcript: string;
@@ -230,6 +244,12 @@ export const generateModuleFromContext = async (context: {
     }
 };
 
+/**
+ * Generates a structured training module by searching the web for a given device brand and model number.
+ * @param brand The brand of the device (e.g., "Samsung").
+ * @param model The model number of the device (e.g., "QN90B").
+ * @returns A promise that resolves to the generated module data.
+ */
 export const generateModuleFromModelNumber = async (brand: string, model: string): Promise<GeneratedModuleData> => {
     if (import.meta.env.DEV) console.time('[AI Perf] generateModuleFromModelNumber');
     const ai = getAiClient();
@@ -276,6 +296,11 @@ export const generateModuleFromModelNumber = async (brand: string, model: string
 
 // --- Chat & Tutoring Services ---
 
+/**
+ * Detects the user's intent from their question using a classification model.
+ * @param userQuestion The user's raw text input.
+ * @returns A promise that resolves to a string representing the detected intent (e.g., "power-on", "unclear").
+ */
 export const detectIntent = async (userQuestion: string): Promise<string> => {
     if (import.meta.env.DEV) console.time('[AI Perf] detectIntent');
     const ai = getAiClient();
@@ -300,7 +325,7 @@ export const detectIntent = async (userQuestion: string): Promise<string> => {
         return result.intent || "unclear";
     } catch (error) {
         console.warn("[AI Service] Intent detection failed:", error);
-        return "unclear";
+        return "unclear"; // Graceful fallback
     } finally {
         if (import.meta.env.DEV) console.timeEnd('[AI Perf] detectIntent');
     }
@@ -310,7 +335,6 @@ export const detectIntent = async (userQuestion: string): Promise<string> => {
 function getChatTutorSystemInstruction(stepsContext: string, fullTranscript?: string, templateContext?: TemplateContext): string {
     let baseInstruction = `You are the Adapt AI Tutor, an expert teaching assistant. Your single most important goal is to teach a trainee the specific process designed by their company's owner.\n\n`;
 
-    // Add alias context to help the AI understand informal language.
     baseInstruction += `${getAliasPromptInjection()}\n\n`;
 
     if (templateContext) {
@@ -351,6 +375,14 @@ ${transcriptSection}
 `;
 }
 
+/**
+ * Initializes a new chat session with the AI Tutor.
+ * @param stepsContext The structured text of the current, previous, and next steps.
+ * @param fullTranscript The full text transcript of the video, if available.
+ * @param history An array of previous messages to continue a conversation.
+ * @param templateContext Contextual information from a template, like button definitions.
+ * @returns An initialized `Chat` object.
+ */
 export const startChat = (stepsContext: string, fullTranscript?: string, history: Content[] = [], templateContext?: TemplateContext): Chat => {
     const ai = getAiClient();
     const systemInstruction = getChatTutorSystemInstruction(stepsContext, fullTranscript, templateContext);
@@ -361,6 +393,13 @@ export const startChat = (stepsContext: string, fullTranscript?: string, history
     });
 };
 
+/**
+ * Sends a message to an ongoing chat stream, with built-in retry logic for network resilience.
+ * @param chat The active `Chat` object.
+ * @param prompt The user's message.
+ * @param retries The number of times to retry on failure.
+ * @returns An async generator that yields `GenerateContentResponse` chunks.
+ */
 export async function sendMessageWithRetry(
     chat: Chat,
     prompt: string,
@@ -381,6 +420,14 @@ export async function sendMessageWithRetry(
     throw new Error("sendMessageWithRetry failed after all attempts.");
 }
 
+/**
+ * Provides a fallback response mechanism if the primary chat stream fails.
+ * @param prompt The user's message.
+ * @param history The current chat history.
+ * @param stepsContext The context of the process steps.
+ * @param fullTranscript The full video transcript.
+ * @returns A promise that resolves to the fallback AI's response text.
+ */
 export const getFallbackResponse = async (prompt: string, history: ChatMessage[], stepsContext: string, fullTranscript: string): Promise<string> => {
     if (import.meta.env.DEV) console.time('[AI Perf] getFallbackResponse');
     console.log("[AI Service] Attempting fallback AI provider...");
@@ -416,6 +463,13 @@ const performanceSummarySchema = {
     required: ["summary"]
 };
 
+/**
+ * Generates a personalized performance summary for a user upon completing a module.
+ * @param moduleTitle The title of the completed module.
+ * @param unclearSteps An array of steps the user marked as "unclear".
+ * @param userQuestions An array of questions the user asked the AI tutor.
+ * @returns A promise that resolves to an object containing the summary text.
+ */
 export const generatePerformanceSummary = async (moduleTitle: string, unclearSteps: ProcessStep[], userQuestions: string[]): Promise<{ summary: string }> => {
     if (import.meta.env.DEV) console.time('[AI Perf] generatePerformanceSummary');
     const ai = getAiClient();
@@ -446,7 +500,7 @@ export const generatePerformanceSummary = async (moduleTitle: string, unclearSte
         return parseJson<{ summary: string }>(text);
     } catch (error) {
         console.error("[AI Service] Error generating performance summary:", error);
-        // Provide a safe fallback
+        // Provide a safe fallback to avoid breaking the UI.
         return { summary: "Congratulations on completing the training! You did a great job." };
     } finally {
         if (import.meta.env.DEV) console.timeEnd('[AI Perf] generatePerformanceSummary');
@@ -463,6 +517,12 @@ const checkpointEvaluationSchema = {
     required: ["isCorrect", "feedback", "suggestedInstructionChange"]
 };
 
+/**
+ * Evaluates a user's answer to a checkpoint question against the step's instructions.
+ * @param step The process step containing the checkpoint.
+ * @param answer The user's answer to the checkpoint question.
+ * @returns A promise that resolves to a CheckpointEvaluation object.
+ */
 export const evaluateCheckpointAnswer = async (step: ProcessStep, answer: string): Promise<CheckpointEvaluation> => {
     if (import.meta.env.DEV) console.time('[AI Perf] evaluateCheckpointAnswer');
     const ai = getAiClient();
@@ -496,6 +556,11 @@ export const evaluateCheckpointAnswer = async (step: ProcessStep, answer: string
 
 // --- Image & Branching Services ---
 
+/**
+ * Generates an image based on a text prompt using the Imagen model.
+ * @param prompt The text prompt describing the desired image.
+ * @returns A promise that resolves to a base64-encoded data URL of the generated JPEG image.
+ */
 export const generateImage = async (prompt: string): Promise<string> => {
     if (import.meta.env.DEV) console.time('[AI Perf] generateImage');
     const ai = getAiClient();
@@ -534,6 +599,12 @@ const branchModuleSchema = {
     required: ["title", "steps"],
 };
 
+/**
+ * Generates a short, remedial "branch" module for users who are stuck on a particular step.
+ * @param stepTitle The title of the step the user is stuck on.
+ * @param questions An array of questions the user has asked, indicating their confusion.
+ * @returns A promise that resolves to a GeneratedBranchModule object.
+ */
 export const generateBranchModule = async (stepTitle: string, questions: string[]): Promise<GeneratedBranchModule> => {
     if (import.meta.env.DEV) console.time('[AI Perf] generateBranchModule');
     const ai = getAiClient();
