@@ -69,14 +69,16 @@ const TemplateWizardPage: React.FC = () => {
             const moduleSteps: ProcessStep[] = finalSteps.map(s => ({
                 title: s.title,
                 description: s.description,
-                remoteType: s.remoteType ?? null, // Explicitly handle undefined -> null
+                remoteType: s.remoteType ?? undefined,
                 start: 0,
                 end: 0,
                 checkpoint: null,
                 alternativeMethods: [],
             }));
 
-            const templateContext: TemplateContext = {};
+            const templateContext: TemplateContext = {
+                templateId: template.id
+            };
             if (template.ai_context_notes) {
                 templateContext.ai_context_notes = template.ai_context_notes;
             }
@@ -101,7 +103,7 @@ const TemplateWizardPage: React.FC = () => {
             const savedModule = await saveModule({ moduleData: moduleToSave });
             await queryClient.invalidateQueries({ queryKey: ['modules'] });
             addToast('success', 'Module Created!', `Navigating to "${savedModule.title}"...`);
-            navigate(`/modules/${savedModule.slug}`);
+            navigate(`/modules/${savedModule.slug}/edit`);
 
         } catch (err) {
             const errorMessage = err instanceof Error ? err.message : "An unknown error occurred.";
@@ -110,11 +112,11 @@ const TemplateWizardPage: React.FC = () => {
         }
     }, [template, user, multiRemoteAnswer, addToast, queryClient, navigate]);
 
-    // FIX: This hook is now called unconditionally at the top level of the component.
-    // This resolves the "change in the order of Hooks" error which was causing the app to crash.
+    // This hook is now called unconditionally at the top level of the component.
+    // The logic inside the hook remains conditional.
     useEffect(() => {
-        // The logic inside the hook remains conditional. If the template is loaded and there are 
-        // no wizard steps (like a multi-remote prompt), we proceed directly to module creation.
+        // If the template is loaded and there are no wizard steps (like a multi-remote prompt),
+        // we can proceed directly to module creation.
         if (template && !isLoading && wizardStep === 0 && !template.multi_remote_prompt) {
             handleCreateModule();
         }
@@ -132,6 +134,14 @@ const TemplateWizardPage: React.FC = () => {
     if (!template) {
         return <div className="text-center p-8">Template data is unavailable.</div>;
     }
+
+    // The logic inside the hook remains conditional. If the template is loaded and there are 
+    // no wizard steps (like a multi-remote prompt), we proceed directly to module creation.
+    if (wizardStep === 1 || (wizardStep === 0 && !template.multi_remote_prompt)) {
+        // This useEffect was causing the hook order violation.
+        // The logic has been moved to the top-level useEffect.
+    }
+
 
     const renderMultiRemoteStep = () => (
         <div>
