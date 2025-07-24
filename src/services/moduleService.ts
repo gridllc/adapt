@@ -3,30 +3,30 @@
 // and Google Cloud Storage for videos.
 
 import type { AppModule, AppModuleWithStats, ModuleForInsert } from '@/types';
-import { functions } from '@/firebase';
+import app from '@/firebase';
+import { getFunctions, httpsCallable } from 'firebase/functions';
 
-// --- Callable Firebase Functions ---
-// Note: The backend implementation for these functions must exist and be deployed.
+// --- Callable Firebase Functions (Modular SDK) ---
+// We specify the region here for consistency with the backend deployment.
+const functions = getFunctions(app, 'us-central1');
 
-const getModuleFn = functions.httpsCallable('getModule');
-const getSignedUploadUrlFn = functions.httpsCallable('getSignedUploadUrl');
-const saveModuleFn = functions.httpsCallable('saveModule');
-const getAvailableModulesFn = functions.httpsCallable('getAvailableModules');
-const deleteModuleFn = functions.httpsCallable('deleteModule');
+const getModuleFn = httpsCallable<{ moduleId: string }, AppModule | undefined>(functions, 'getModule');
+const getSignedUploadUrlFn = httpsCallable<{ slug: string; contentType: string; fileExtension: string }, { uploadUrl: string; filePath: string }>(functions, 'getSignedUploadUrl');
+const saveModuleFn = httpsCallable<{ moduleData: ModuleForInsert }, AppModule>(functions, 'saveModule');
+const getAvailableModulesFn = httpsCallable<void, AppModuleWithStats[]>(functions, 'getAvailableModules');
+const deleteModuleFn = httpsCallable<{ slug: string }, void>(functions, 'deleteModule');
 
 
 // --- Implemented Functions ---
 
 /**
  * Fetches a single module.
- * It first checks for local remedial JSON files (e.g., 'how-to-..'), then falls back to
- * calling the 'getModule' Firebase Function to fetch from Firestore.
+ * It first checks for local remedial JSON files, then calls the 'getModule' Firebase Function.
  * @param slug The unique identifier for the module.
  * @returns A promise that resolves to the AppModule or undefined if not found/error.
  */
 export const getModule = async (slug: string): Promise<AppModule | undefined> => {
-    // Check for static sub-modules used in live coaching, which don't require a DB.
-    // These are local public files.
+    // Check for static sub-modules used in live coaching, which are local public files.
     if (slug.startsWith('how-to-')) {
         try {
             const response = await fetch(`/modules/${slug}.json`);
@@ -41,13 +41,11 @@ export const getModule = async (slug: string): Promise<AppModule | undefined> =>
 
     try {
         const result = await getModuleFn({ moduleId: slug });
-        // The callable function result is in `result.data`.
-        return result.data as AppModule;
+        return result.data;
     } catch (error) {
         console.error(`[Firebase] Error fetching module '${slug}':`, error);
-        // Returning undefined is the expected behavior for react-query when a resource is not found or fails.
-        // The query hook will handle the error state.
-        return undefined;
+        // Re-throw the error so react-query can handle the error state.
+        throw error;
     }
 };
 
@@ -67,17 +65,12 @@ export const saveModule = async ({
 
         try {
             // Step 1a: Get a signed URL from our secure backend function.
-            // The function will construct the secure path using the user's ID.
             const result = await getSignedUploadUrlFn({
                 slug: moduleData.slug,
                 contentType: videoFile.type,
                 fileExtension: fileExtension,
             });
-            const { uploadUrl, filePath } = result.data as { uploadUrl: string; filePath: string };
-
-            if (!uploadUrl || !filePath) {
-                throw new Error("Cloud function did not return a valid upload URL or file path.");
-            }
+            const { uploadUrl, filePath } = result.data;
 
             // Step 1b: Upload the file directly to GCS from the client.
             const uploadResponse = await fetch(uploadUrl, {
@@ -95,7 +88,7 @@ export const saveModule = async ({
             videoUrlPath = filePath;
         } catch (error) {
             console.error("Failed to get signed URL or upload video:", error);
-            throw new Error("Could not upload the video file. Please check permissions and backend function logs.");
+            throw error;
         }
     }
 
@@ -106,23 +99,23 @@ export const saveModule = async ({
             video_url: videoUrlPath, // Use the new GCS path
         };
 
+        // This call correctly wraps the data as you suggested.
         const result = await saveModuleFn({ moduleData: moduleToSave });
 
-        // The cloud function should return the saved module data.
-        return result.data as AppModule;
+        return result.data;
     } catch (error) {
         console.error(`[Firebase] Error saving module metadata for '${moduleData.slug}':`, error);
-        throw new Error("Failed to save module metadata to the database.");
+        throw error;
     }
 };
 
 export const getAvailableModules = async (): Promise<AppModuleWithStats[]> => {
     try {
         const result = await getAvailableModulesFn();
-        return result.data as AppModuleWithStats[];
+        return result.data;
     } catch (error) {
         console.error("[Firebase] Error fetching available modules:", error);
-        throw new Error("Failed to fetch the list of training modules from the server.");
+        throw error;
     }
 };
 
@@ -131,9 +124,6 @@ export const deleteModule = async (slug: string): Promise<void> => {
         await deleteModuleFn({ slug });
     } catch (error) {
         console.error(`[Firebase] Error deleting module '${slug}':`, error);
-        if (error instanceof Error) {
-            throw new Error(`Failed to delete the module: ${error.message}`);
-        }
-        throw new Error("An unknown error occurred while deleting the module.");
+        throw error;
     }
 };
