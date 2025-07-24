@@ -7,9 +7,15 @@ const saveRoutineFn = httpsCallable<{ routineData: Omit<Routine, 'id'> & { id?: 
 const deleteRoutineFn = httpsCallable<{ routineId: string }, void>(functions, 'deleteRoutine');
 const getSignedRoutineVideoUploadUrlFn = httpsCallable<{ routineId: string, contentType: string }, { uploadUrl: string, filePath: string }>(functions, 'getSignedRoutineVideoUploadUrl');
 const getRoutineForIntentFn = httpsCallable<{ templateId: string, intent: string }, Routine | null>(functions, 'getRoutineForIntent');
+const getAllRoutinesFn = httpsCallable<void, Routine[]>(functions, 'getAllRoutines');
 
 export const getRoutinesForTemplate = async (templateId: string): Promise<Routine[]> => {
     const result = await getRoutinesForTemplateFn({ templateId });
+    return result.data;
+};
+
+export const getAllRoutines = async (): Promise<Routine[]> => {
+    const result = await getAllRoutinesFn();
     return result.data;
 };
 

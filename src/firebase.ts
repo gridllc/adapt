@@ -18,7 +18,7 @@ const firebaseConfig = {
 };
 
 // Initialize Firebase
-let firebaseApp: FirebaseApp;
+export let firebaseApp: FirebaseApp;
 try {
   firebaseApp = getApp();
 } catch (e) {

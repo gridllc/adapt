@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { db } from '@/firebase';
+import { doc, getDoc } from 'firebase/firestore';
 import { saveRoutine } from '@/services/routineService';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/useToast';
@@ -28,9 +29,9 @@ const RoutineEditorPage: React.FC = () => {
     useEffect(() => {
         const fetchRoutine = async () => {
             if (routineId) {
-                const docRef = db.collection("routines").doc(routineId);
-                const docSnap = await docRef.get();
-                if (docSnap.exists) {
+                const docRef = doc(db, "routines", routineId);
+                const docSnap = await getDoc(docRef);
+                if (docSnap.exists()) {
                     setRoutine({ id: docSnap.id, ...docSnap.data() } as Routine);
                 } else {
                     addToast('error', 'Not Found', 'Routine not found.');
