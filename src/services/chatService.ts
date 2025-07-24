@@ -1,14 +1,16 @@
 import { functions } from '@/firebase';
+import { httpsCallable } from 'firebase/functions';
+import type { Functions } from 'firebase/functions';
 import type { ChatMessage } from '@/types';
 
-const getChatHistoryFn = functions.httpsCallable('getChatHistory');
-const saveChatMessageFn = functions.httpsCallable('saveChatMessage');
-const updateMessageFeedbackFn = functions.httpsCallable('updateMessageFeedback');
+const getChatHistoryFn = httpsCallable<{ moduleId: string, sessionToken: string }, ChatMessage[]>(functions as Functions, 'getChatHistory');
+const saveChatMessageFn = httpsCallable<{ moduleId: string, sessionToken: string, message: ChatMessage }>(functions as Functions, 'saveChatMessage');
+const updateMessageFeedbackFn = httpsCallable<{ messageId: string, feedback: 'good' | 'bad' }>(functions as Functions, 'updateMessageFeedback');
 
 export const getChatHistory = async (moduleId: string, sessionToken: string): Promise<ChatMessage[]> => {
     try {
         const result = await getChatHistoryFn({ moduleId, sessionToken });
-        return result.data as ChatMessage[];
+        return result.data;
     } catch (error) {
         console.error("Error fetching chat history:", error);
         return [];

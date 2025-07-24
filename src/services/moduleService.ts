@@ -3,18 +3,17 @@
 // and Google Cloud Storage for videos.
 
 import type { AppModule, AppModuleWithStats, ModuleForInsert } from '@/types';
-import app from '@/firebase';
-import { getFunctions, httpsCallable } from 'firebase/functions';
+import { functions } from '@/firebase';
+import { httpsCallable } from 'firebase/functions';
+import type { Functions } from 'firebase/functions';
+
 
 // --- Callable Firebase Functions (Modular SDK) ---
-// We specify the region here for consistency with the backend deployment.
-const functions = getFunctions(app, 'us-central1');
-
-const getModuleFn = httpsCallable<{ moduleId: string }, AppModule | undefined>(functions, 'getModule');
-const getSignedUploadUrlFn = httpsCallable<{ slug: string; contentType: string; fileExtension: string }, { uploadUrl: string; filePath: string }>(functions, 'getSignedUploadUrl');
-const saveModuleFn = httpsCallable<{ moduleData: ModuleForInsert }, AppModule>(functions, 'saveModule');
-const getAvailableModulesFn = httpsCallable<void, AppModuleWithStats[]>(functions, 'getAvailableModules');
-const deleteModuleFn = httpsCallable<{ slug: string }, void>(functions, 'deleteModule');
+const getModuleFn = httpsCallable<{ moduleId: string }, AppModule | undefined>(functions as Functions, 'getModule');
+const getSignedUploadUrlFn = httpsCallable<{ slug: string; contentType: string; fileExtension: string }, { uploadUrl: string; filePath: string }>(functions as Functions, 'getSignedUploadUrl');
+const saveModuleFn = httpsCallable<{ moduleData: ModuleForInsert }, AppModule>(functions as Functions, 'saveModule');
+const getAvailableModulesFn = httpsCallable<void, AppModuleWithStats[]>(functions as Functions, 'getAvailableModules');
+const deleteModuleFn = httpsCallable<{ slug: string }, void>(functions as Functions, 'deleteModule');
 
 
 // --- Implemented Functions ---
@@ -99,7 +98,6 @@ export const saveModule = async ({
             video_url: videoUrlPath, // Use the new GCS path
         };
 
-        // This call correctly wraps the data as you suggested.
         const result = await saveModuleFn({ moduleData: moduleToSave });
 
         return result.data;

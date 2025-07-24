@@ -1,16 +1,6 @@
 import { functions } from '@/firebase';
-import type { FlaggedQuestion } from '@/types';
-
-// This type mirrors the expected input for the 'flagQuestion' cloud function.
-interface FlaggedQuestionForInsert {
-    module_id: string;
-    step_index: number;
-    user_question: string;
-    tutor_response: string | null;
-    user_id: string | null;
-    comment?: string | null;
-    tutor_log_id?: string | null;
-}
+import type { HttpsCallableResult } from 'firebase/functions';
+import type { FlaggedQuestion, FlaggedQuestionForInsert } from '@/types';
 
 // --- Callable Firebase Functions ---
 const flagQuestionFn = functions.httpsCallable('flagQuestion');
@@ -30,7 +20,7 @@ export async function flagQuestion(flagData: FlaggedQuestionForInsert): Promise<
 
 export async function getFlaggedQuestions(moduleId: string): Promise<FlaggedQuestion[]> {
     try {
-        const result = await getFlaggedQuestionsFn({ moduleId });
+        const result: HttpsCallableResult = await getFlaggedQuestionsFn({ moduleId });
         return result.data as FlaggedQuestion[];
     } catch (error) {
         console.error("[Firebase] Error fetching flagged questions:", error);

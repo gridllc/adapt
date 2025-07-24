@@ -1,3 +1,4 @@
+
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { createBrowserRouter, RouterProvider } from 'react-router-dom';
@@ -12,9 +13,9 @@ import EditPage from '@/pages/EditPage';
 import LoginPage from '@/pages/LoginPage';
 import ForgotPasswordPage from '@/pages/ForgotPasswordPage';
 import UpdatePasswordPage from '@/pages/UpdatePasswordPage';
-import DashboardPage from './pages/DashboardPage';
-import RoutineDashboardPage from './pages/RoutineDashboardPage';
-import RoutineEditorPage from './pages/RoutineEditorPage';
+import DashboardPage from '@/pages/DashboardPage';
+import RoutineDashboardPage from '@/pages/RoutineDashboardPage';
+import RoutineEditorPage from '@/pages/RoutineEditorPage';
 import FaqPage from '@/pages/FaqPage';
 import NotFoundPage from '@/pages/NotFoundPage';
 import ProtectedRoute from '@/components/ProtectedRoute';
@@ -28,7 +29,7 @@ import { PwaUpdater } from '@/components/PwaUpdater';
 import QuestionLogDetailPage from '@/pages/QuestionLogDetailPage';
 import AdminLayout from '@/components/AdminLayout';
 import { auth } from '@/firebase';
-import TemplateWizardPage from './pages/TemplateWizardPage';
+import TemplateWizardPage from '@/pages/TemplateWizardPage';
 
 // Expose Firebase auth for debugging in development mode
 if (import.meta.env.DEV) {

@@ -3,19 +3,21 @@
 // with the database and Vertex AI for embedding and search.
 
 import { functions } from '@/firebase';
+import { httpsCallable } from 'firebase/functions';
+import type { Functions } from 'firebase/functions';
 import type { AIFeedbackLog, SimilarFix } from '@/types';
 
 // --- Callable Firebase Functions ---
-const logAiFeedbackFn = functions.httpsCallable('logAiFeedback');
-const updateFeedbackWithFixFn = functions.httpsCallable('updateFeedbackWithFix');
-const findSimilarFixesFn = functions.httpsCallable('findSimilarFixes');
-const getPastFeedbackForStepFn = functions.httpsCallable('getPastFeedbackForStep');
+const logAiFeedbackFn = httpsCallable<Omit<AIFeedbackLog, 'id' | 'createdAt'>, { logId: string }>(functions as Functions, 'logAiFeedback');
+const updateFeedbackWithFixFn = httpsCallable<{ logId: string, fixOrRating: string }>(functions as Functions, 'updateFeedbackWithFix');
+const findSimilarFixesFn = httpsCallable<{ moduleId: string, stepIndex: number, userQuery: string }, SimilarFix[]>(functions as Functions, 'findSimilarFixes');
+const getPastFeedbackForStepFn = httpsCallable<{ moduleId: string, stepIndex: number }, AIFeedbackLog[]>(functions as Functions, 'getPastFeedbackForStep');
 
 
 export const logAiFeedback = async (feedbackData: Omit<AIFeedbackLog, 'id' | 'createdAt'>): Promise<string> => {
     try {
         const result = await logAiFeedbackFn(feedbackData);
-        return (result.data as { logId: string }).logId;
+        return result.data.logId;
     } catch (error) {
         console.error("[Firebase] Failed to log AI feedback:", error);
         // Throwing allows the UI to show a more specific error if needed.
@@ -35,7 +37,7 @@ export const updateFeedbackWithFix = async (logId: string, fixOrRating: string):
 export const getPastFeedbackForStep = async (moduleId: string, stepIndex: number): Promise<AIFeedbackLog[]> => {
     try {
         const result = await getPastFeedbackForStepFn({ moduleId, stepIndex });
-        return result.data as AIFeedbackLog[];
+        return result.data;
     } catch (error) {
         console.error("[Firebase] Failed to get past feedback for step:", error);
         return [];
@@ -45,7 +47,7 @@ export const getPastFeedbackForStep = async (moduleId: string, stepIndex: number
 export const findSimilarFixes = async (moduleId: string, stepIndex: number, userQuery: string): Promise<SimilarFix[]> => {
     try {
         const result = await findSimilarFixesFn({ moduleId, stepIndex, userQuery });
-        return result.data as SimilarFix[];
+        return result.data;
     } catch (error) {
         console.error("[Firebase] Failed to find similar fixes:", error);
         return [];

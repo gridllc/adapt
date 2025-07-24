@@ -1,10 +1,13 @@
 import type { CheckpointResponse } from '@/types';
 import { functions } from '@/firebase';
+import { httpsCallable } from 'firebase/functions';
+import type { Functions } from 'firebase/functions';
 
-const logCheckpointResponseFn = functions.httpsCallable('logCheckpointResponse');
-const getCheckpointResponsesForModuleFn = functions.httpsCallable('getCheckpointResponsesForModule');
-const getCheckpointFailureStatsFn = functions.httpsCallable('getCheckpointFailureStats');
-// const sendCheckpointFailuresToSlackFn = httpsCallable(functions, 'sendCheckpointFailuresToSlack');
+type CheckpointFailureStat = { step_index: number; checkpoint_text: string; count: number };
+
+const logCheckpointResponseFn = httpsCallable<Omit<CheckpointResponse, 'id' | 'created_at'>>(functions as Functions, 'logCheckpointResponse');
+const getCheckpointResponsesForModuleFn = httpsCallable<{ moduleId: string }, CheckpointResponse[]>(functions as Functions, 'getCheckpointResponsesForModule');
+const getCheckpointFailureStatsFn = httpsCallable<{ moduleId: string }, CheckpointFailureStat[]>(functions as Functions, 'getCheckpointFailureStats');
 
 export async function logCheckpointResponse(response: Omit<CheckpointResponse, 'id' | 'created_at'>): Promise<void> {
     try {
@@ -17,28 +20,19 @@ export async function logCheckpointResponse(response: Omit<CheckpointResponse, '
 export async function getCheckpointResponsesForModule(moduleId: string): Promise<CheckpointResponse[]> {
     try {
         const result = await getCheckpointResponsesForModuleFn({ moduleId });
-        return result.data as CheckpointResponse[];
+        return result.data;
     } catch (error) {
         console.error("Error fetching checkpoint responses:", error);
         throw error;
     }
 }
 
-export async function getCheckpointFailureStats(moduleId: string): Promise<{ step_index: number; checkpoint_text: string; count: number }[]> {
+export async function getCheckpointFailureStats(moduleId: string): Promise<CheckpointFailureStat[]> {
     try {
         const result = await getCheckpointFailureStatsFn({ moduleId });
-        return result.data as { step_index: number; checkpoint_text: string; count: number }[];
+        return result.data;
     } catch (error) {
         console.error("Error fetching checkpoint failure stats:", error);
         return [];
     }
 }
-
-// export async function sendCheckpointFailuresToSlack(moduleId: string, moduleTitle: string): Promise<void> {
-//     try {
-//         await sendCheckpointFailuresToSlackFn({ moduleId, moduleTitle });
-//     } catch (error) {
-//         console.error("Error sending report to Slack:", error);
-//         throw error;
-//     }
-// }

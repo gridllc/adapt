@@ -166,6 +166,17 @@ export interface FlaggedQuestion {
     tutorResponse: string | null;
 }
 
+// This type mirrors the expected input for the 'flagQuestion' cloud function.
+export interface FlaggedQuestionForInsert {
+    module_id: string;
+    step_index: number;
+    user_question: string;
+    tutor_response: string | null;
+    user_id: string | null;
+    comment?: string | null;
+    tutor_log_id?: string | null;
+}
+
 export interface AnalysisHotspot {
     stepIndex: number;
     stepTitle: string;

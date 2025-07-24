@@ -25,7 +25,7 @@ const optionsWithoutApiKey = {
 
 
 // --- Constants ---
-const BUCKET_NAME = "adapt-training-videos"; // Explicitly define the bucket name for all GCS operations.
+const BUCKET_NAME = process.env.GCLOUD_STORAGE_BUCKET || "adapt-frontend-rkdt.appspot.com";
 const DAILY_TUTOR_LIMIT = 100;
 
 
@@ -298,6 +298,44 @@ export const updateMessageFeedback = onCall(optionsWithoutApiKey, async (req: Ca
     return { success: true };
 });
 
+export const getSessionSummary = onCall(optionsWithoutApiKey, async (req: CallableRequest<{ moduleId: string; sessionToken: string }>) => {
+    const { moduleId, sessionToken } = req.data;
+    const snap = await db.collection("sessions")
+        .where("module_id", "==", moduleId)
+        .where("session_token", "==", sessionToken)
+        .limit(1)
+        .get();
+
+    if (snap.empty) return null;
+
+    const sessionDoc = snap.docs[0];
+    const sessionData = sessionDoc.data();
+
+    // Calculate durations
+    const events = (sessionData.liveCoachEvents || []).filter((e: any) => e.eventType === "step_advance").sort((a: any, b: any) => a.timestamp - b.timestamp);
+    const durationsPerStep: Record<number, number> = {};
+    for (let i = 0; i < events.length - 1; i++) {
+        durationsPerStep[events[i].stepIndex] = events[i + 1].timestamp - events[i].timestamp;
+    }
+
+    return {
+        ...sessionData,
+        startedAt: sessionData.created_at.toMillis(),
+        endedAt: sessionData.updated_at.toMillis(),
+        durationsPerStep,
+    };
+});
+
+export const getTotalSessionCount = onCall(optionsWithoutApiKey, async () => {
+    const snapshot = await db.collection("sessions").count().get();
+    return snapshot.data().count;
+});
+
+export const getCompletedSessionCount = onCall(optionsWithoutApiKey, async () => {
+    const snapshot = await db.collection("sessions").where("is_completed", "==", true).count().get();
+    return snapshot.data().count;
+});
+
 
 // --- AI, Analytics & Feedback Functions ---
 interface DetectedAlias {
@@ -433,7 +471,7 @@ const refinementSchema = {
 
 export const refineStep = onCall(
     optionsWithApiKey,
-    async (request: CallableRequest<{ moduleId: string, stepIndex: number }>): Promise<{ suggestion: any }> => {
+    async (request: CallableRequest<{ moduleId: string, stepIndex: number }>): Promise<{ error?: string, suggestion: any }> => {
         if (!request.auth?.uid) throw new HttpsError("unauthenticated", "Authentication required.");
         const ai = getAiClient();
         const { moduleId, stepIndex } = request.data;
@@ -444,7 +482,7 @@ export const refineStep = onCall(
 
         const logsSnapshot = await db.collection("tutorLogs").where("module_id", "==", moduleId).where("step_index", "==", stepIndex).get();
         const questions = [...new Set(logsSnapshot.docs.map((doc) => doc.data().user_question).filter(Boolean))];
-        if (questions.length === 0) return { suggestion: null };
+        if (questions.length === 0) return { error: "No questions found for this step.", suggestion: null };
 
         const prompt = `
             You are an expert instructional designer. A trainee is confused by a step in a manual.
@@ -564,6 +602,35 @@ export const getQuestionFrequency = onCall(optionsWithoutApiKey, async (request:
     return Object.values(stats).sort((a, b) => b.count - a.count);
 });
 
+export const getTutorLogs = onCall(optionsWithoutApiKey, async (request: CallableRequest<{ moduleId: string }>) => {
+    const { moduleId } = request.data;
+    const snapshot = await db.collection("tutorLogs")
+        .where("module_id", "==", moduleId)
+        .orderBy("created_at", "desc")
+        .limit(50)
+        .get();
+    return snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
+});
+
+export const getAllTutorLogs = onCall(optionsWithoutApiKey, async () => {
+    const snapshot = await db.collection("tutorLogs").orderBy("created_at", "desc").limit(500).get();
+    return snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
+});
+
+export const getQuestionLogsByQuestion = onCall(optionsWithoutApiKey, async (req) => {
+    const { moduleId, stepIndex, question, startDate, endDate } = req.data;
+    let query = db.collection("tutorLogs")
+        .where("module_id", "==", moduleId)
+        .where("step_index", "==", stepIndex)
+        .where("user_question", "==", question);
+
+    if (startDate) query = query.where("created_at", ">=", new Date(startDate));
+    if (endDate) query = query.where("created_at", "<=", new Date(endDate));
+
+    const snapshot = await query.orderBy("created_at", "desc").get();
+    return snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
+});
+
 // --- Suggestions Service Functions ---
 
 export const submitSuggestion = onCall(optionsWithoutApiKey, async (req: CallableRequest<{ moduleId: string, stepIndex: number, text: string }>) => {
@@ -577,13 +644,51 @@ export const submitSuggestion = onCall(optionsWithoutApiKey, async (req: Callabl
         status: "pending",
         created_at: FieldValue.serverTimestamp(),
     });
-    return { id: ref.id, ...req.data };
+    const doc = await ref.get();
+    return { id: doc.id, ...doc.data() };
 });
+
+
+export const getTraineeSuggestionsForModule = onCall(optionsWithoutApiKey, async (req) => {
+    if (!req.auth?.uid) throw new HttpsError("unauthenticated", "Authentication required.");
+    const snapshot = await db.collection("traineeSuggestions").where("module_id", "==", req.data.moduleId).get();
+    return snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
+});
+
+export const getAllPendingSuggestions = onCall(optionsWithoutApiKey, async (req) => {
+    if (!req.auth?.uid) throw new HttpsError("unauthenticated", "Authentication required.");
+    const snapshot = await db.collection("traineeSuggestions").where("status", "==", "pending").get();
+    const suggestions = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
+    const moduleIds = [...new Set(suggestions.map(s => (s as { module_id: string }).module_id))];
+    if (moduleIds.length === 0) return [];
+    const modulesSnapshot = await db.collection("modules").where(admin.firestore.FieldPath.documentId(), "in", moduleIds).get();
+    const moduleTitles = new Map(modulesSnapshot.docs.map(doc => [doc.id, doc.data().title]));
+    return suggestions.map(s => ({ ...s, module_title: moduleTitles.get((s as { module_id: string }).module_id) }));
+});
+
 
 export const deleteTraineeSuggestion = onCall(optionsWithoutApiKey, async (req: CallableRequest<{ suggestionId: string }>) => {
     if (!req.auth?.uid) throw new HttpsError("unauthenticated", "Authentication required.");
     await db.collection("traineeSuggestions").doc(req.data.suggestionId).delete();
     return { success: true };
+});
+
+export const getAiSuggestionsForModule = onCall(optionsWithoutApiKey, async (req) => {
+    if (!req.auth?.uid) throw new HttpsError("unauthenticated", "Authentication required.");
+    const snapshot = await db.collection("aiSuggestions").where("module_id", "==", req.data.moduleId).orderBy("created_at", "desc").get();
+    return snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
+});
+
+export const getLatestAiSuggestionForStep = onCall(optionsWithoutApiKey, async (req) => {
+    if (!req.auth?.uid) throw new HttpsError("unauthenticated", "Authentication required.");
+    const snapshot = await db.collection("aiSuggestions")
+        .where("module_id", "==", req.data.moduleId)
+        .where("step_index", "==", req.data.stepIndex)
+        .orderBy("created_at", "desc")
+        .limit(1).get();
+    if (snapshot.empty) return null;
+    const doc = snapshot.docs[0];
+    return { ...doc.data(), id: doc.id };
 });
 
 // --- Checkpoint Service Functions ---
@@ -600,6 +705,12 @@ export const logCheckpointResponse = onCall(optionsWithoutApiKey, async (req: Ca
         created_at: FieldValue.serverTimestamp(),
     });
     return { success: true };
+});
+
+export const getCheckpointResponsesForModule = onCall(optionsWithoutApiKey, async (req) => {
+    if (!req.auth?.uid) throw new HttpsError("unauthenticated", "Authentication required.");
+    const snapshot = await db.collection("checkpointResponses").where("module_id", "==", req.data.moduleId).get();
+    return snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
 });
 
 // --- Feedback Service Functions (for Live Coach) ---
@@ -624,6 +735,36 @@ export const updateFeedbackWithFix = onCall(optionsWithApiKey, async (req: Calla
     }
     await db.collection("feedbackLogs").doc(logId).update(updateData);
     return { success: true };
+});
+
+export const getPastFeedbackForStep = onCall(optionsWithoutApiKey, async (req) => {
+    const { moduleId, stepIndex } = req.data;
+    const snapshot = await db.collection("feedbackLogs")
+        .where("module_id", "==", moduleId)
+        .where("step_index", "==", stepIndex)
+        .orderBy("created_at", "desc")
+        .limit(5)
+        .get();
+    return snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
+});
+
+export const findSimilarFixes = onCall(optionsWithApiKey, async (req: CallableRequest<{ userQuery: string; moduleId: string; stepIndex: number }>) => {
+    const { userQuery, moduleId, stepIndex } = req.data;
+    const queryVector = await generateEmbedding(userQuery);
+    const snapshot = await db.collection("feedbackLogs")
+        .where("module_id", "==", moduleId)
+        .where("step_index", "==", stepIndex)
+        .where("feedback", "==", "bad") // Only learn from corrected mistakes
+        .where("fixEmbedding", "!=", null)
+        .get();
+
+    const results = snapshot.docs.map(doc => {
+        const data = doc.data();
+        const similarity = cosineSimilarity(queryVector, data.fixEmbedding);
+        return { userFixText: data.userFixText, id: doc.id, similarity };
+    });
+
+    return results.filter(r => r.similarity > 0.8).sort((a, b) => b.similarity - a.similarity).slice(0, 3);
 });
 
 
@@ -683,6 +824,28 @@ export const getSignedRoutineVideoUploadUrl = onCall(optionsWithoutApiKey, async
 
     return { uploadUrl: url, filePath };
 });
+
+export const deleteRoutine = onCall(optionsWithoutApiKey, async (req: CallableRequest<{ routineId: string }>) => {
+    const uid = req.auth?.uid;
+    if (!uid) throw new HttpsError("unauthenticated", "Authentication required.");
+
+    const { routineId } = req.data;
+    const routineRef = db.collection("routines").doc(routineId);
+    const doc = await routineRef.get();
+
+    if (!doc.exists || doc.data()?.userId !== uid) {
+        throw new HttpsError("permission-denied", "You do not own this routine.");
+    }
+    await routineRef.delete();
+    return { success: true };
+});
+
+export const getRoutinesForTemplate = onCall(optionsWithoutApiKey, async (req: CallableRequest<{ templateId: string }>) => {
+    const { templateId } = req.data;
+    const snapshot = await db.collection("routines").where("templateId", "==", templateId).get();
+    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+});
+
 
 // --- Text-to-Speech Service ---
 export const generateSpeech = onCall(optionsWithApiKey, async (req: CallableRequest<{ text: string, voiceId: string }>) => {

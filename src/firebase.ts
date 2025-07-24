@@ -1,9 +1,10 @@
 // src/firebase.ts
 import firebase from 'firebase/compat/app';
 import 'firebase/compat/auth';
-import 'firebase/compat/storage';
-import 'firebase/compat/functions';
 import 'firebase/compat/firestore';
+import 'firebase/compat/functions';
+import 'firebase/compat/storage';
+
 
 // Securely load Firebase config from environment variables
 const firebaseConfig = {
@@ -16,13 +17,12 @@ const firebaseConfig = {
   measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID,
 };
 
+// Initialize Firebase
+export const firebaseApp = firebase.initializeApp(firebaseConfig);
 
-// Check if Firebase is already initialized to avoid errors during hot-reloading.
-const app = !firebase.apps.length ? firebase.initializeApp(firebaseConfig) : firebase.app();
-
+// Initialize and export Firebase services
 export const auth = firebase.auth();
-export const storage = firebase.storage();
-export const functions = firebase.functions();
 export const db = firebase.firestore();
-
-export default app;
+export const storage = firebase.storage();
+// Initialize Functions for a specific region for consistency with the backend
+export const functions = firebaseApp.functions('us-central1');

@@ -1,14 +1,11 @@
-import firebase from 'firebase/compat/app';
+import type firebase from 'firebase/compat/app';
 import 'firebase/compat/auth';
-import { auth } from '@/firebase';
+import { auth } from '@/firebase'; // Import the initialized v8 compat auth instance
 
-// Types are now on the firebase namespace
+// Export the User type from the compat SDK
 export type User = firebase.User;
 type AuthError = firebase.auth.Error;
-type UserCredential = firebase.auth.UserCredential;
 type Unsubscribe = firebase.Unsubscribe;
-type NextOrObserver<T> = firebase.Observer<T> | ((a: T | null) => void);
-
 
 // Re-create a similar response structure for compatibility
 export type AuthResponse = {
@@ -25,7 +22,7 @@ export type SignUpWithPasswordCredentials = {
 export const signUp = async (credentials: SignUpWithPasswordCredentials): Promise<AuthResponse> => {
     try {
         if (!credentials.password) throw new Error("Password is required for sign up.");
-        const userCredential: UserCredential = await auth.createUserWithEmailAndPassword(credentials.email, credentials.password);
+        const userCredential = await auth.createUserWithEmailAndPassword(credentials.email, credentials.password);
         return { data: { user: userCredential.user }, error: null };
     } catch (error) {
         return { data: { user: null }, error: error as AuthError };
@@ -36,7 +33,7 @@ export const signUp = async (credentials: SignUpWithPasswordCredentials): Promis
 export const signInWithPassword = async (credentials: SignUpWithPasswordCredentials): Promise<AuthResponse> => {
     try {
         if (!credentials.password) throw new Error("Password is required for sign in.");
-        const userCredential: UserCredential = await auth.signInWithEmailAndPassword(credentials.email, credentials.password);
+        const userCredential = await auth.signInWithEmailAndPassword(credentials.email, credentials.password);
         return { data: { user: userCredential.user }, error: null };
     } catch (error) {
         return { data: { user: null }, error: error as AuthError };
@@ -59,8 +56,8 @@ export const getCurrentUser = (): User | null => {
 };
 
 // --- Listen for Auth State Changes ---
-export const onAuthStateChange = (callback: NextOrObserver<User>): Unsubscribe => {
-    return auth.onAuthStateChanged(callback as any);
+export const onAuthStateChange = (callback: (user: User | null) => void): Unsubscribe => {
+    return auth.onAuthStateChanged(callback);
 };
 
 // --- Password Reset Flow ---
@@ -76,11 +73,12 @@ export const sendPasswordResetEmail = async (email: string): Promise<{ error: Er
 };
 
 export const updateUserPassword = async (password: string): Promise<{ error: Error | null }> => {
-    if (!auth.currentUser) {
+    const user = auth.currentUser;
+    if (!user) {
         return { error: new Error("User not authenticated.") };
     }
     try {
-        await auth.currentUser.updatePassword(password);
+        await user.updatePassword(password);
         return { error: null };
     } catch (error) {
         return { error: error as Error };
