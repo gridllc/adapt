@@ -1,55 +1,38 @@
 import type { AnalysisHotspot, QuestionStats, TutorLogRow, AppModuleWithStats } from '@/types';
-import { functions } from '@/firebase';
-import { httpsCallable } from 'firebase/functions';
+import { auth } from '@/firebase';
 
+async function authedApiFetch<T>(url: string, options?: RequestInit): Promise<T> {
+    const token = auth.currentUser ? await auth.currentUser.getIdToken() : null;
+    const headers = new Headers(options?.headers);
+    if (!headers.has('Content-Type')) {
+        headers.set('Content-Type', 'application/json');
+    }
+    if (token) {
+        headers.set('Authorization', `Bearer ${token}`);
+    }
 
-// Callable function definitions initialized once for performance.
-const _getQuestionFrequencyFn = httpsCallable<{ moduleId: string }, QuestionStats[]>(functions, 'getQuestionFrequency');
-const _getTutorLogsFn = httpsCallable<{ moduleId: string }, TutorLogRow[]>(functions, 'getTutorLogs');
-const _getAllTutorLogsFn = httpsCallable<void, TutorLogRow[]>(functions, 'getAllTutorLogs');
-const _getQuestionLogsByQuestionFn = httpsCallable<{
-    moduleId: string;
-    stepIndex: number;
-    question: string;
-    startDate?: string;
-    endDate?: string;
-}, TutorLogRow[]>(functions, 'getQuestionLogsByQuestion');
+    const response = await fetch(url, { ...options, headers });
+    if (!response.ok) {
+        const errorBody = await response.json().catch(() => ({ error: 'An unknown API error occurred.' }));
+        throw new Error(errorBody.error || `Request failed with status ${response.status}`);
+    }
+    return response.json();
+}
 
-/**
- * Fetches the frequency of questions asked for a specific module via the 'getQuestionFrequency' Firebase Function.
- * @param moduleId The ID of the module.
- * @returns A promise that resolves to an array of question statistics. Throws on error for react-query to handle.
- */
 export const getQuestionFrequency = async (moduleId: string): Promise<QuestionStats[]> => {
-    const result = await _getQuestionFrequencyFn({ moduleId });
-    return result.data;
+    const url = `/api/analytics/question-frequency?moduleId=${encodeURIComponent(moduleId)}`;
+    return authedApiFetch<QuestionStats[]>(url);
 };
 
-/**
- * Fetches all tutor interaction logs for a specific module via the 'getTutorLogs' Firebase Function.
- * @param moduleId The ID of the module.
- * @returns A promise that resolves to an array of tutor log rows. Throws on error for react-query to handle.
- */
 export const getTutorLogs = async (moduleId: string): Promise<TutorLogRow[]> => {
-    const result = await _getTutorLogsFn({ moduleId });
-    return result.data;
+    const url = `/api/analytics/tutor-logs?moduleId=${encodeURIComponent(moduleId)}`;
+    return authedApiFetch<TutorLogRow[]>(url);
 };
 
-/**
- * Fetches all tutor interaction logs across all modules via the 'getAllTutorLogs' Firebase Function.
- * @returns A promise that resolves to an array of all tutor log rows. Throws on error for react-query to handle.
- */
 export const getAllTutorLogs = async (): Promise<TutorLogRow[]> => {
-    const result = await _getAllTutorLogsFn();
-    return result.data;
+    return authedApiFetch<TutorLogRow[]>('/api/analytics/tutor-logs/all');
 };
 
-/**
- * Fetches tutor logs for a specific question within a module step via the 'getQuestionLogsByQuestion' Firebase Function.
- * Allows for optional date filtering.
- * @param params The parameters for the query, including moduleId, stepIndex, and question.
- * @returns A promise that resolves to an array of matching tutor log rows. Throws on error for react-query to handle.
- */
 export const getQuestionLogsByQuestion = async (params: {
     moduleId: string;
     stepIndex: number;
@@ -57,11 +40,18 @@ export const getQuestionLogsByQuestion = async (params: {
     startDate?: string;
     endDate?: string;
 }): Promise<TutorLogRow[]> => {
-    const result = await _getQuestionLogsByQuestionFn(params);
-    return result.data;
+    const query = new URLSearchParams({
+        moduleId: params.moduleId,
+        stepIndex: String(params.stepIndex),
+        question: params.question,
+        ...(params.startDate && { startDate: params.startDate }),
+        ...(params.endDate && { endDate: params.endDate }),
+    }).toString();
+    const url = `/api/analytics/question-logs?${query}`;
+    return authedApiFetch<TutorLogRow[]>(url);
 };
 
-// Client-side utility function, does not require backend changes
+// Client-side utility functions remain unchanged
 export const findHotspots = (stats: QuestionStats[], module: AppModuleWithStats): AnalysisHotspot | null => {
     if (!stats || stats.length === 0) return null;
     const hotspot = stats.reduce((prev, current) => (prev.count > current.count) ? prev : current);
@@ -73,7 +63,6 @@ export const findHotspots = (stats: QuestionStats[], module: AppModuleWithStats)
     };
 };
 
-// Client-side utility function, does not require backend changes
 export const findPlatformHotspot = (allLogs: TutorLogRow[], allModules: AppModuleWithStats[]): (AnalysisHotspot & { moduleId: string }) | null => {
     if (allLogs.length === 0) return null;
     const logCounts: Record<string, { count: number, stepTitle: string, moduleId: string }> = {};

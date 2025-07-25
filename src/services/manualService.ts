@@ -1,31 +1,35 @@
-import { functions } from '@/firebase';
-import { httpsCallable } from 'firebase/functions';
+import { auth } from '@/firebase';
 
-// Callable function definition initialized once for performance.
-const _getSignedManualUploadUrlFn = httpsCallable<{ fileName: string, contentType: string }, { uploadUrl: string, filePath: string }>(functions, 'getSignedManualUploadUrl');
+async function authedApiFetch<T>(url: string, options?: RequestInit): Promise<T> {
+    const token = auth.currentUser ? await auth.currentUser.getIdToken() : null;
+    const headers = new Headers(options?.headers);
+    if (!headers.has('Content-Type')) {
+        headers.set('Content-Type', 'application/json');
+    }
+    if (token) {
+        headers.set('Authorization', `Bearer ${token}`);
+    }
+    const response = await fetch(url, { ...options, headers });
+    if (!response.ok) {
+        const errorBody = await response.json().catch(() => ({ error: 'An unknown API error occurred.' }));
+        throw new Error(errorBody.error || `Request failed with status ${response.status}`);
+    }
+    return response.json();
+}
 
-/**
- * Uploads a user-provided manual to a secure cloud storage location for later processing.
- * This function orchestrates getting a signed URL from a Firebase Function and then performing the upload.
- * @param file The manual file (PDF, DOCX, TXT) to upload.
- * @returns A promise that resolves with the cloud storage path of the uploaded file.
- * @throws If the upload process fails at any stage.
- */
+
 export const uploadManualForProcessing = async (file: File): Promise<string> => {
     try {
-        // 1. Get a secure, one-time upload URL from our backend function.
-        const result = await _getSignedManualUploadUrlFn({
-            fileName: file.name,
+        const payload = {
+            type: 'manual',
+            id: file.name,
             contentType: file.type,
+        };
+        const { uploadUrl, filePath } = await authedApiFetch<{ uploadUrl: string, filePath: string }>('/api/uploads/signed-url', {
+            method: 'POST',
+            body: JSON.stringify(payload),
         });
 
-        const { uploadUrl, filePath } = result.data;
-
-        if (!uploadUrl || !filePath) {
-            throw new Error("Backend did not return a valid upload URL.");
-        }
-
-        // 2. Use the signed URL to upload the file directly to Cloud Storage from the client.
         const uploadResponse = await fetch(uploadUrl, {
             method: 'PUT',
             headers: { 'Content-Type': file.type },

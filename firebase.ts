@@ -1,5 +1,9 @@
 // src/firebase.ts
-import * as firebaseAppModule from 'firebase/app';
+import firebase from 'firebase/compat/app';
+import 'firebase/compat/auth';
+import 'firebase/compat/firestore';
+import 'firebase/compat/functions';
+import 'firebase/compat/storage';
 import { getAuth, connectAuthEmulator } from 'firebase/auth';
 import { getFirestore, connectFirestoreEmulator } from 'firebase/firestore';
 import { getFunctions, connectFunctionsEmulator } from 'firebase/functions';
@@ -18,7 +22,7 @@ const firebaseConfig = {
 
 // --- Initialize Firebase ---
 // This pattern prevents re-initializing the app on hot reloads.
-const app = firebaseAppModule.getApps().length > 0 ? firebaseAppModule.getApp() : firebaseAppModule.initializeApp(firebaseConfig);
+const app = firebase.apps.length ? firebase.app() : firebase.initializeApp(firebaseConfig);
 export const firebaseApp = app;
 
 

@@ -1,54 +1,56 @@
-import { functions } from '@/firebase';
-import { httpsCallable } from 'firebase/functions';
 import type { ChatMessage } from '@/types';
+import { auth } from '@/firebase';
 
-// Callable function definitions initialized once for performance.
-const _getChatHistoryFn = httpsCallable<{ moduleId: string, sessionToken: string }, ChatMessage[]>(functions, 'getChatHistory');
-const _saveChatMessageFn = httpsCallable<{ moduleId: string, sessionToken: string, message: ChatMessage }, void>(functions, 'saveChatMessage');
-const _updateMessageFeedbackFn = httpsCallable<{ messageId: string, feedback: 'good' | 'bad' }, void>(functions, 'updateMessageFeedback');
+async function authedApiFetch<T>(url: string, options?: RequestInit): Promise<T> {
+    const token = auth.currentUser ? await auth.currentUser.getIdToken() : null;
+    const headers = new Headers(options?.headers);
+    if (!headers.has('Content-Type')) {
+        headers.set('Content-Type', 'application/json');
+    }
+    if (token) {
+        headers.set('Authorization', `Bearer ${token}`);
+    }
 
-/**
- * Fetches the chat history for a given module and session via the 'getChatHistory' Firebase Function.
- * @param moduleId The ID of the module.
- * @param sessionToken The unique token for the training session.
- * @returns A promise that resolves to an array of chat messages, or an empty array on error to ensure the UI remains stable.
- */
+    const response = await fetch(url, { ...options, headers });
+    if (!response.ok) {
+        const errorBody = await response.json().catch(() => ({ error: 'An unknown API error occurred.' }));
+        throw new Error(errorBody.error || `Request failed with status ${response.status}`);
+    }
+    if (response.status === 204) {
+        return null as T;
+    }
+    return response.json();
+}
+
 export const getChatHistory = async (moduleId: string, sessionToken: string): Promise<ChatMessage[]> => {
     try {
-        const result = await _getChatHistoryFn({ moduleId, sessionToken });
-        return result.data;
+        // Public, no auth
+        const url = `/api/chat?moduleId=${encodeURIComponent(moduleId)}&sessionToken=${encodeURIComponent(sessionToken)}`;
+        const response = await fetch(url);
+        if (!response.ok) throw new Error("Failed to fetch history");
+        return response.json();
     } catch (error) {
         console.error("Error fetching chat history:", error);
-        return []; // Gracefully return empty history on failure.
+        return [];
     }
 };
 
-/**
- * Saves a chat message to the database via the 'saveChatMessage' Firebase Function.
- * This is a "fire-and-forget" operation from the client's perspective to avoid blocking the UI.
- * @param moduleId The ID of the module.
- * @param sessionToken The unique token for the training session.
- * @param message The chat message object to save.
- */
 export const saveChatMessage = async (moduleId: string, sessionToken: string, message: ChatMessage): Promise<void> => {
     try {
-        await _saveChatMessageFn({ moduleId, sessionToken, message });
+        // Public, no auth
+        await fetch('/api/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ moduleId, sessionToken, message }),
+        });
     } catch (error) {
-        // Log as a warning since this is a background sync operation.
         console.warn("Could not save chat message:", error);
     }
 };
 
-/**
- * Updates the feedback status ('good' or 'bad') for a specific chat message via the 'updateMessageFeedback' Firebase Function.
- * @param messageId The ID of the message to update.
- * @param feedback The feedback value.
- */
 export const updateMessageFeedback = async (messageId: string, feedback: 'good' | 'bad'): Promise<void> => {
-    try {
-        await _updateMessageFeedbackFn({ messageId, feedback });
-    } catch (error) {
-        console.error("Error updating message feedback:", error);
-        throw error; // Re-throw for react-query to handle and display a toast.
-    }
+    await authedApiFetch('/api/chat/feedback', {
+        method: 'POST',
+        body: JSON.stringify({ messageId, feedback }),
+    });
 };

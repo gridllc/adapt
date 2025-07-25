@@ -1,83 +1,62 @@
 import type { SessionSummary, SessionState } from '@/types';
-import { functions } from '@/firebase';
-import { httpsCallable } from 'firebase/functions';
+import { auth } from '@/firebase';
 
-// Callable function definitions initialized once for performance.
-const _getSessionFn = httpsCallable<{ moduleId: string, sessionToken: string }, SessionState | null>(functions, 'getSession');
-const _saveSessionFn = httpsCallable<Partial<SessionState> & { moduleId: string; sessionToken: string }, void>(functions, 'saveSession');
-const _getSessionSummaryFn = httpsCallable<{ moduleId: string, sessionToken: string }, SessionSummary | null>(functions, 'getSessionSummary');
-const _getTotalSessionCountFn = httpsCallable<void, number>(functions, 'getTotalSessionCount');
-const _getCompletedSessionCountFn = httpsCallable<void, number>(functions, 'getCompletedSessionCount');
+async function authedApiFetch<T>(url: string, options?: RequestInit): Promise<T> {
+    const token = auth.currentUser ? await auth.currentUser.getIdToken() : null;
+    const headers = new Headers(options?.headers);
+    if (!headers.has('Content-Type')) {
+        headers.set('Content-Type', 'application/json');
+    }
+    if (token) {
+        headers.set('Authorization', `Bearer ${token}`);
+    }
 
-/**
- * Fetches the current state of a training session via the 'getSession' Firebase Function.
- * @param moduleId The ID of the module.
- * @param sessionToken The unique token for the session.
- * @returns A promise resolving to the session state, or null if not found or on error.
- */
+    const response = await fetch(url, { ...options, headers });
+    if (!response.ok) {
+        const errorBody = await response.json().catch(() => ({ error: 'An unknown API error occurred.' }));
+        throw new Error(errorBody.error || `Request failed with status ${response.status}`);
+    }
+    if (response.status === 204) {
+        return null as T;
+    }
+    return response.json();
+}
+
 export const getSession = async (moduleId: string, sessionToken: string): Promise<SessionState | null> => {
     try {
-        const result = await _getSessionFn({ moduleId, sessionToken });
-        return result.data;
+        const url = `/api/sessions?moduleId=${encodeURIComponent(moduleId)}&sessionToken=${encodeURIComponent(sessionToken)}`;
+        // Publicly accessible for trainees, no auth needed for GET
+        const response = await fetch(url);
+        if (!response.ok) throw new Error("Failed to fetch session");
+        return response.json();
     } catch (error) {
         console.error("Error fetching session:", error);
-        return null; // Gracefully return null on failure.
+        return null;
     }
 };
 
-/**
- * Saves the state of a training session via the 'saveSession' Firebase Function.
- * This is a "fire-and-forget" operation from the client's perspective.
- * @param state The session state object to save. Must include moduleId and sessionToken.
- */
 export const saveSession = async (state: Partial<SessionState> & { moduleId: string; sessionToken: string }): Promise<void> => {
     try {
-        await _saveSessionFn(state);
+        // Publicly accessible for trainees, no auth needed for POST
+        await fetch('/api/sessions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(state),
+        });
     } catch (error) {
         console.warn("Could not save session state:", error);
     }
 };
 
-/**
- * Fetches a detailed summary of a completed session for review via the 'getSessionSummary' Firebase Function.
- * @param moduleId The ID of the module.
- * @param sessionToken The unique token for the session.
- * @returns A promise resolving to the session summary. Throws on error.
- */
 export const getSessionSummary = async (moduleId: string, sessionToken: string): Promise<SessionSummary | null> => {
-    try {
-        const result = await _getSessionSummaryFn({ moduleId, sessionToken });
-        return result.data;
-    } catch (error) {
-        console.error("Error fetching session summary:", error);
-        throw error;
-    }
+    const url = `/api/sessions/summary?moduleId=${encodeURIComponent(moduleId)}&sessionToken=${encodeURIComponent(sessionToken)}`;
+    return authedApiFetch<SessionSummary | null>(url);
 };
 
-/**
- * Fetches the total number of training sessions started on the platform via the 'getTotalSessionCount' Firebase Function.
- * @returns A promise resolving to the total count.
- */
 export const getTotalSessionCount = async (): Promise<number> => {
-    try {
-        const result = await _getTotalSessionCountFn();
-        return result.data;
-    } catch (error) {
-        console.error("Error fetching total session count:", error);
-        throw error;
-    }
+    return authedApiFetch<number>('/api/sessions/count/total');
 };
 
-/**
- * Fetches the number of completed training sessions on the platform via the 'getCompletedSessionCount' Firebase Function.
- * @returns A promise resolving to the completed session count.
- */
 export const getCompletedSessionCount = async (): Promise<number> => {
-    try {
-        const result = await _getCompletedSessionCountFn();
-        return result.data;
-    } catch (error) {
-        console.error("Error fetching completed session count:", error);
-        throw error;
-    }
+    return authedApiFetch<number>('/api/sessions/count/completed');
 };

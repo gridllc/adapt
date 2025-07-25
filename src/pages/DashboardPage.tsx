@@ -7,7 +7,7 @@ import { getCompletedSessionCount, getTotalSessionCount } from '@/services/sessi
 import { getAllPendingSuggestions, getLatestAiSuggestionForStep, refineStep } from '@/services/suggestionsService';
 import { generateBranchModule } from '@/services/geminiService';
 import { BarChartIcon, LightbulbIcon, SparklesIcon, GitBranchIcon, BookOpenIcon, ClockIcon, HelpCircleIcon, VideoIcon, DownloadIcon, TrashIcon } from '@/components/Icons';
-import { RefinementModal } from '@/components/RefinementModal';
+import { SuggestionModal } from '@/components/dashboard/SuggestionModal';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/useToast';
 import type { AnalysisHotspot, RefinementSuggestion, ProcessStep, QuestionStats, AiSuggestion, TraineeSuggestion, TutorLogRow, AppModuleWithStats, AppModule, ModuleForInsert, Json } from '@/types';
@@ -309,7 +309,7 @@ const DashboardPage: React.FC = () => {
             </div>
 
             {isModalOpen && moduleHotspot && activeSuggestion && selectedModule && (
-                <RefinementModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} currentStep={selectedModule.steps[moduleHotspot.stepIndex]} suggestion={activeSuggestion} onApply={handleApplyRefinement} />
+                <SuggestionModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} currentStep={selectedModule.steps[moduleHotspot.stepIndex]} suggestion={activeSuggestion} onApply={handleApplyRefinement} />
             )}
         </div>
     );
