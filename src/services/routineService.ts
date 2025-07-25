@@ -47,9 +47,12 @@ export const getRoutineForIntent = async (templateId: string, intent: string): P
 
 /**
  * Saves a routine (creates or updates) and optionally uploads an associated video file.
+ * This function securely communicates with the 'saveRoutine' Firebase Function, which handles
+ * writing the data to Firestore. It also manages uploading a video to Google Cloud Storage
+ * by first obtaining a signed URL.
  * @param routine The routine data to save. Can include an `id` for updates.
  * @param videoFile An optional video file to upload and associate with the routine.
- * @returns A promise that resolves with the saved routine data.
+ * @returns A promise that resolves with the final, saved routine data from the backend.
  */
 export const saveRoutine = async (routine: Omit<Routine, 'id'> & { id?: string }, videoFile: File | null): Promise<Routine> => {
     let videoUrlPath: string | null = routine.videoUrl || null;

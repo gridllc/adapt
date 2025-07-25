@@ -1,5 +1,4 @@
 
-
 import React, { Suspense } from 'react';
 import ReactDOM from 'react-dom/client';
 import { createBrowserRouter, RouterProvider } from 'react-router-dom';
@@ -16,7 +15,7 @@ import { PwaUpdater } from '@/components/PwaUpdater';
 import AdminLayout from '@/components/AdminLayout';
 import { auth } from '@/firebase';
 
-// Lazy load pages for better performance
+// Lazy load pages for better performance and code splitting
 const HomePage = React.lazy(() => import('@/pages/HomePage'));
 const TrainingPage = React.lazy(() => import('@/pages/TrainingPage'));
 const CreatePage = React.lazy(() => import('@/pages/CreatePage'));
@@ -55,6 +54,10 @@ const router = createBrowserRouter(
             children: [
                 {
                     index: true,
+                    element: <HomePage />,
+                },
+                {
+                    path: 'templates',
                     element: <HomePage />,
                 },
                 {

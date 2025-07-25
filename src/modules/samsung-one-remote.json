@@ -1,0 +1,51 @@
+{
+  "id": "samsung-one-remote",
+  "title": "Samsung Smart Remote Setup",
+  "category": "TV Remote",
+  "multi_remote_prompt": "Do you use more than one remote to control this TV setup (e.g., one for TV power, another for cable/sound)?",
+  "ai_context_notes": "This setup may involve two remotes. Remote A is the primary Samsung remote for power and navigation. Remote B is a secondary remote for channels and volume. Always clarify which remote the user should be using.",
+  "buttons": [
+    {
+      "name": "Power",
+      "symbol": "⏻",
+      "function": "Turns the TV on or off."
+    },
+    {
+      "name": "Navigation Ring",
+      "symbol": "○",
+      "function": "Navigates menus (up, down, left, right). Press center to select."
+    },
+    {
+      "name": "Volume",
+      "symbol": "+/-",
+      "function": "Controls the sound volume."
+    },
+    {
+      "name": "Channel",
+      "symbol": "CH",
+      "function": "Changes the channel."
+    }
+  ],
+  "steps": [
+    {
+      "remoteType": "A",
+      "title": "Power On TV (Remote A)",
+      "description": "Point the Samsung remote (Remote A) at the TV. Press the Power (⏻) button once. The TV screen should light up."
+    },
+    {
+      "remoteType": "A",
+      "title": "Navigate to App or Input (Remote A)",
+      "description": "Use the Navigation Ring (○) on Remote A to move between apps like Netflix or inputs like HDMI 1. Press the center of the ring to select."
+    },
+    {
+      "remoteType": "B",
+      "title": "Control Volume (Remote B)",
+      "description": "Use the secondary remote (Remote B) for audio. Press the Volume (+/-) button to increase or decrease the sound."
+    },
+    {
+      "remoteType": "B",
+      "title": "Change Channels (Remote B)",
+      "description": "If watching cable, use the Channel (CH) button on Remote B to switch between channels."
+    }
+  ]
+}

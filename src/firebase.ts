@@ -1,5 +1,5 @@
 // src/firebase.ts
-import { initializeApp, getApp, getApps, type FirebaseApp } from 'firebase/app';
+import { initializeApp, getApps, getApp } from 'firebase';
 import { getAuth, connectAuthEmulator } from 'firebase/auth';
 import { getFirestore, connectFirestoreEmulator } from 'firebase/firestore';
 import { getFunctions, connectFunctionsEmulator } from 'firebase/functions';

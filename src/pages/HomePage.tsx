@@ -47,7 +47,7 @@ const HomePage: React.FC = () => {
     useEffect(() => {
         const fetchTemplates = async () => {
             try {
-                const response = await fetch('/templates/index.json');
+                const response = await fetch('/modules/index.json');
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
                 }
@@ -175,7 +175,14 @@ const HomePage: React.FC = () => {
                                     <h3 className="text-xl font-bold text-slate-800 dark:text-slate-200 mb-4">{category.name}</h3>
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                         {category.templates.map(template => (
-                                            <TemplateCard key={template.id} template={template} />
+                                            <TemplateCard
+                                                key={template.id}
+                                                id={template.id}
+                                                title={template.title}
+                                                description={template.description}
+                                                icon={template.icon}
+                                                category={category.name}
+                                            />
                                         ))}
                                     </div>
                                 </div>

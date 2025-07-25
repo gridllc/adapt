@@ -2,37 +2,36 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import * as Icons from '@/components/Icons';
 
-interface Template {
+interface TemplateCardProps {
     id: string;
     title: string;
     description: string;
     icon: keyof typeof Icons;
+    category: string;
 }
 
-interface TemplateCardProps {
-    template: Template;
-}
-
-export const TemplateCard: React.FC<TemplateCardProps> = ({ template }) => {
-    const IconComponent = Icons[template.icon] || Icons.HelpCircleIcon;
+export const TemplateCard: React.FC<TemplateCardProps> = ({ id, title, description, icon, category }) => {
+    // Dynamically select the icon component, with a fallback
+    const IconComponent = Icons[icon] || Icons.BookOpenIcon;
 
     return (
-        <div className="w-full text-left p-6 bg-white dark:bg-slate-800 rounded-xl hover:ring-2 hover:ring-indigo-500 transition-all duration-300 transform hover:-translate-y-1 shadow-md dark:shadow-lg hover:shadow-xl dark:hover:shadow-indigo-500/20">
+        // Use Link to navigate to the template wizard page
+        <Link
+            to={`/templates/${id}`}
+            className="group block w-full text-left p-6 bg-white dark:bg-slate-800 rounded-xl shadow-md dark:shadow-lg hover:shadow-xl hover:ring-2 hover:ring-indigo-500 dark:hover:ring-indigo-400 transition-all duration-300 transform hover:-translate-y-1"
+            title={`Create a module from the "${title}" template`}
+            data-testid={`template-card-${id}`}
+        >
             <div className="flex items-start gap-4 mb-4">
-                <div className="bg-indigo-100 dark:bg-indigo-600/30 p-3 rounded-lg">
-                    <IconComponent className="h-6 w-6 text-indigo-600 dark:text-indigo-300" />
+                <div className="bg-indigo-100 dark:bg-indigo-900/50 p-3 rounded-lg transition-colors group-hover:bg-indigo-200 dark:group-hover:bg-indigo-800">
+                    <IconComponent className="h-6 w-6 text-indigo-600 dark:text-indigo-400" />
                 </div>
-                <div>
-                    <h3 className="text-xl font-bold text-slate-800 dark:text-slate-100">{template.title}</h3>
-                    <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">{template.description}</p>
+                <div className="flex-1 pt-1">
+                    <h2 className="text-lg font-bold text-slate-800 dark:text-slate-100">{title}</h2>
+                    <span className="text-xs font-semibold uppercase tracking-wider text-indigo-500 dark:text-indigo-400">{category}</span>
                 </div>
             </div>
-            <Link
-                to={`/templates/${template.id}`}
-                className="w-full text-center block bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 px-4 rounded-lg transition-colors"
-            >
-                Use This Template
-            </Link>
-        </div>
+            <p className="text-sm text-slate-600 dark:text-slate-400">{description}</p>
+        </Link>
     );
 };

@@ -42,7 +42,7 @@ const TemplateWizardPage: React.FC = () => {
                 return;
             }
             try {
-                const response = await fetch(`/templates/${templateId}.json`);
+                const response = await fetch(`/modules/${templateId}.json`);
                 if (!response.ok) throw new Error("Template not found.");
                 const data = await response.json();
                 setTemplate(data);
@@ -134,14 +134,6 @@ const TemplateWizardPage: React.FC = () => {
     if (!template) {
         return <div className="text-center p-8">Template data is unavailable.</div>;
     }
-
-    // The logic inside the hook remains conditional. If the template is loaded and there are 
-    // no wizard steps (like a multi-remote prompt), we proceed directly to module creation.
-    if (wizardStep === 1 || (wizardStep === 0 && !template.multi_remote_prompt)) {
-        // This useEffect was causing the hook order violation.
-        // The logic has been moved to the top-level useEffect.
-    }
-
 
     const renderMultiRemoteStep = () => (
         <div>

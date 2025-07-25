@@ -1,0 +1,10 @@
+{
+  "short_name": "Adapt",
+  "name": "Adapt AI Training Platform",
+  "description": "The Adapt platform uses an AI-powered tutor to deliver interactive, video-based training modules.",
+  "start_url": "/",
+  "background_color": "#1e293b",
+  "display": "standalone",
+  "scope": "/",
+  "theme_color": "#1e293b"
+}

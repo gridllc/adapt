@@ -1,0 +1,48 @@
+{
+  "id": "firetv-remote",
+  "title": "Fire TV Remote",
+  "category": "TV Remote",
+  "icon": "Fire",
+  "description": "Guide for using the Fire TV remote with voice and streaming features.",
+  "ai_context_notes": "Fire TV remotes have Alexa voice, a navigation ring, and streaming playback buttons. This guide emphasizes hands-on learning and voice command practice.",
+  "buttons": [
+    { "name": "⏻ Power", "function": "Turns the TV on/off if paired" },
+    { "name": "🎤 Microphone", "function": "Hold to speak Alexa voice commands" },
+    { "name": "Navigation Ring", "function": "Move Up/Down/Left/Right through menus" },
+    { "name": "✔ Select", "function": "Choose the selected item" },
+    { "name": "← Back", "function": "Return to previous screen" },
+    { "name": "🏠 Home", "function": "Go to the main screen" },
+    { "name": "≡ Menu", "function": "Open options or settings" },
+    { "name": "⏪ Rewind", "function": "Skip backwards" },
+    { "name": "⏯ Play/Pause", "function": "Start or stop playback" },
+    { "name": "⏩ Fast-Forward", "function": "Skip ahead" },
+    { "name": "🔊 Volume + / -", "function": "Adjust sound if connected to TV" },
+    { "name": "🔇 Mute", "function": "Silence sound" }
+  ],
+  "steps": [
+    {
+      "title": "Show Him the Remote Layout",
+      "description": "Physically show the remote and explain each button.\nStart with Power, Mic, Navigation Ring, and Select."
+    },
+    {
+      "title": "Practice Navigating the Home Screen",
+      "description": "Press the 🏠 Home button to return to the main screen.\nUse the Navigation Ring to scroll through apps.\nPress ✔ Select to open an app."
+    },
+    {
+      "title": "Use Voice Commands",
+      "description": "Hold down the 🎤 Mic button.\nSay things like: \"Open YouTube\", \"Play The Office\", \"Go to settings\".\nRelease the button after speaking."
+    },
+    {
+      "title": "Watch a Video",
+      "description": "Open an app like Prime Video and select a show.\nUse ⏯ Play/Pause, ⏪ Rewind, ⏩ Fast-Forward during playback.\nPress ← Back to exit the video."
+    },
+    {
+      "title": "Go to Settings",
+      "description": "From the Home screen, scroll right to Settings.\nExplore Network, Display & Sounds, or My Fire TV options."
+    },
+    {
+      "title": "Bonus: Add a Shortcut Sheet",
+      "description": "Print a cheat sheet with icons and functions.\nTape it near the TV as a quick reference."
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "id": "samsung-standard-remote",
+  "title": "Samsung Standard Remote Guide",
+  "category": "TV Remote",
+  "ai_context_notes": "This is a traditional IR remote with many buttons. Users may be confused by the number of options. Be direct and refer to buttons by their text labels.",
+  "buttons": [
+    { "name": "Power", "symbol": "⏻", "function": "Turns the TV on or off." },
+    { "name": "Source", "symbol": "SOURCE", "function": "Switches between different inputs like HDMI, AV, etc." },
+    { "name": "Volume", "symbol": "VOL +/-", "function": "Controls the sound volume." },
+    { "name": "Channel", "symbol": "CH +/-", "function": "Changes the channel." },
+    { "name": "Number Pad", "symbol": "1-9", "function": "Directly input a channel number." }
+  ],
+  "steps": [
+    {
+      "title": "Turn On the TV",
+      "description": "Point the remote at the TV and press the red Power (⏻) button at the top."
+    },
+    {
+      "title": "Select the Correct Input",
+      "description": "Press the 'SOURCE' button repeatedly until the correct input (e.g., 'HDMI 1') is highlighted on the screen. Press 'OK' or wait a moment to select it."
+    },
+    {
+      "title": "Adjust Volume and Channel",
+      "description": "Use the 'VOL +/-' and 'CH +/-' rocker buttons to control the sound and change channels."
+    }
+  ]
+}
