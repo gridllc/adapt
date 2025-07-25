@@ -28,13 +28,13 @@ const authed = async (req: Request, res: Response, next: NextFunction) => {
     if (!idToken) {
         return res.status(401).send("Unauthorized: No token provided.");
     }
+
     try {
         const decodedToken = await admin.auth().verifyIdToken(idToken);
-        (req as any).auth = decodedToken;
-        next();
-    } catch (error) {
-        logger.warn("Token verification failed:", error);
-        return res.status(401).send("Unauthorized: Invalid token.");
+        (req as any).user = decodedToken;
+        return next();  // ✅ Ensure the request proceeds if valid
+    } catch (err) {
+        return res.status(403).send("Unauthorized: Invalid token.");
     }
 };
 
