@@ -3,13 +3,12 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { startChat, getFallbackResponse, generateImage, sendMessageWithRetry, detectIntent } from '@/services/geminiService';
 import { getRoutineForIntent } from '@/services/routineService';
 import * as ttsService from '@/services/ttsService';
-import { submitSuggestion } from '@/services/suggestionsService';
 import { getChatHistory, saveChatMessage, updateMessageFeedback } from '@/services/chatService';
 import { findSimilarInteractions, logTutorInteraction } from '@/services/tutorLogService';
 import { flagQuestion } from '@/services/flaggingService';
 import { chatReducer, initialChatState } from '@/reducers/chatReducer';
 import type { ChatMessage, ProcessStep, TutorLog, Routine, TemplateContext } from '@/types';
-import { SendIcon, BotIcon, UserIcon, LinkIcon, SpeakerOnIcon, SpeakerOffIcon, LightbulbIcon, DownloadIcon, MessageSquareIcon, XIcon, CheckCircleIcon, ImageIcon, SparklesIcon, ClockIcon, AlertTriangleIcon, DatabaseIcon, ThumbsUpIcon, ThumbsDownIcon, LoaderIcon } from './Icons';
+import { SendIcon, BotIcon, UserIcon, LinkIcon, SpeakerOnIcon, SpeakerOffIcon, LightbulbIcon, DownloadIcon, MessageSquareIcon, XIcon, CheckCircleIcon, ImageIcon, SparklesIcon, ClockIcon, AlertTriangleIcon, DatabaseIcon, ThumbsUpIcon, ThumbsDownIcon, LoaderIcon, RefreshCwIcon } from './Icons';
 import { useToast } from '@/hooks/useToast';
 import { useAuth } from '@/hooks/useAuth';
 import type { Chat, Content, GroundingChunk } from '@google/genai';
@@ -29,9 +28,12 @@ interface ChatTutorProps {
     initialPrompt?: string;
     isDebug?: boolean;
     templateContext?: TemplateContext;
+    onSuggestionProposed: (suggestionText: string, messageId: string) => void;
+    submittedSuggestions: Record<string, boolean>;
+
 }
 
-export const ChatTutor: React.FC<ChatTutorProps> = ({ moduleId, sessionToken, stepsContext, fullTranscript, onTimestampClick, currentStepIndex, steps, onClose, initialPrompt, isDebug = false, templateContext }) => {
+export const ChatTutor: React.FC<ChatTutorProps> = ({ moduleId, sessionToken, stepsContext, fullTranscript, onTimestampClick, currentStepIndex, steps, onClose, initialPrompt, isDebug = false, templateContext, onSuggestionProposed, submittedSuggestions }) => {
     const queryClient = useQueryClient();
     const chatHistoryQueryKey = ['chatHistory', moduleId, sessionToken];
     const { addToast } = useToast();
@@ -49,7 +51,6 @@ export const ChatTutor: React.FC<ChatTutorProps> = ({ moduleId, sessionToken, st
     const [isAutoSpeakEnabled, setIsAutoSpeakEnabled] = useState(false);
     const [isMemoryEnabled, setIsMemoryEnabled] = useState(true);
     const [showTimestamps, setShowTimestamps] = useState(true);
-    const [submittedSuggestions, setSubmittedSuggestions] = useState<Record<string, boolean>>({});
     const [flaggedMessageIds, setFlaggedMessageIds] = useState<Record<string, boolean>>({});
     const [expandedMessages, setExpandedMessages] = useState<Record<string, 'memory' | 'debug' | undefined>>({});
     const chatRef = useRef<Chat | null>(null);
@@ -239,8 +240,9 @@ export const ChatTutor: React.FC<ChatTutorProps> = ({ moduleId, sessionToken, st
             const modelPlaceholder: ChatMessage = { id: modelMessageId, role: 'model', text: '', isLoading: true };
             dispatch({ type: 'ADD_MESSAGES', payload: [modelPlaceholder] });
 
+            const currentStep = steps[currentStepIndex];
             const enrichedInput = enrichPromptIfNeeded(query);
-            const finalPrompt = memoryContext + enrichedInput;
+            const finalPrompt = `Current step: ${currentStep.title}.\n\n${memoryContext}${enrichedInput}`;
 
             let finalModelText = '';
             let isFallback = false;
@@ -306,7 +308,7 @@ export const ChatTutor: React.FC<ChatTutorProps> = ({ moduleId, sessionToken, st
 
         await handleStandardQuery(trimmedInput, intent);
 
-    }, [isLoading, chatRef, persistMessage, templateContext, moduleId, detectIntent, getRoutineForIntent, isAutoSpeakEnabled, messages, addToast, isMemoryEnabled, findSimilarInteractions, enrichPromptIfNeeded, stepsContext, fullTranscript, logTutorInteraction, currentStepIndex, steps, user, flagQuestion]);
+    }, [isLoading, chatRef, persistMessage, templateContext, moduleId, currentStepIndex, steps, detectIntent, getRoutineForIntent, isAutoSpeakEnabled, messages, addToast, isMemoryEnabled, findSimilarInteractions, enrichPromptIfNeeded, stepsContext, fullTranscript, logTutorInteraction, user, flagQuestion]);
 
     const handleFormSubmit = useCallback(async (e: React.FormEvent) => {
         e.preventDefault();
@@ -334,23 +336,6 @@ export const ChatTutor: React.FC<ChatTutorProps> = ({ moduleId, sessionToken, st
         }
     }, [messages, sendMessage, addToast]);
 
-
-    const handleSuggestionSubmit = useCallback(async (suggestionText: string, messageId: string) => {
-        if (!suggestionText.trim()) {
-            addToast('error', 'Empty Suggestion', 'Cannot submit a blank suggestion.');
-            return;
-        }
-
-        try {
-            await submitSuggestion(moduleId, currentStepIndex, suggestionText.trim());
-            setSubmittedSuggestions(prev => ({ ...prev, [messageId]: true }));
-            addToast('success', 'Suggestion Submitted', 'Thank you for your feedback! The module owner will review it.');
-        } catch (err) {
-            console.error("Failed to submit suggestion", err);
-            const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred.';
-            addToast('error', 'Submission Failed', `Could not submit suggestion: ${errorMessage}`);
-        }
-    }, [moduleId, currentStepIndex, addToast]);
 
     const handleSubmitToOwner = useCallback((userQuestion: string, aiResponse: string, messageId: string) => {
         if (flaggedMessageIds[messageId]) {
@@ -405,6 +390,43 @@ export const ChatTutor: React.FC<ChatTutorProps> = ({ moduleId, sessionToken, st
         URL.revokeObjectURL(url);
     }, [messages, moduleId]);
 
+    const handleResetChat = useCallback(() => {
+        ttsService.cancel();
+        dispatch({ type: 'SET_MESSAGES', payload: [] });
+        queryClient.setQueryData(chatHistoryQueryKey, []); // Clear cache to prevent refetching
+        if (stepsContext) {
+            try {
+                chatRef.current = startChat(stepsContext, fullTranscript, [], templateContext);
+                addToast('info', 'Chat Reset', 'The conversation has been cleared.');
+            } catch (err) {
+                const errorMessage = err instanceof Error ? err.message : 'Could not restart AI chat.';
+                addToast('error', 'Reset Failed', errorMessage);
+            }
+        }
+    }, [queryClient, chatHistoryQueryKey, stepsContext, fullTranscript, templateContext, addToast]);
+
+    const retryLastMessage = useCallback(() => {
+        const lastUserMessage = [...messages].reverse().find(m => m.role === 'user');
+        const errorModelMessage = [...messages].reverse().find(m => m.isError);
+
+        if (lastUserMessage) {
+            if (errorModelMessage) {
+                // This will remove the error message and the global error state
+                dispatch({ type: 'REMOVE_MESSAGE', payload: { messageId: errorModelMessage.id } });
+            }
+            sendMessage(lastUserMessage.text);
+        }
+    }, [messages, sendMessage]);
+
+    const handleSubmitToOwnerOnError = useCallback(() => {
+        const lastUserMessage = [...messages].reverse().find(m => m.role === 'user');
+        if (lastUserMessage) {
+            flagResponseForReview({ userQuestion: lastUserMessage.text, aiResponse: `[AI FAILED TO RESPOND] - ${error}` });
+            addToast('success', 'Submitted for Review', 'This conversation has been flagged for the module owner.');
+        }
+    }, [messages, flagResponseForReview, error, addToast]);
+
+
     return (
         <div className="flex flex-col h-full bg-white dark:bg-slate-800/50 rounded-2xl">
             <header className="flex items-center justify-between p-4 border-b border-slate-200 dark:border-slate-700 flex-shrink-0">
@@ -413,6 +435,13 @@ export const ChatTutor: React.FC<ChatTutorProps> = ({ moduleId, sessionToken, st
                     <h2 className="font-bold text-lg text-slate-900 dark:text-white">Adapt AI Tutor</h2>
                 </div>
                 <div className="flex items-center gap-3">
+                    <button
+                        onClick={handleResetChat}
+                        className="p-1 text-xs text-slate-400 hover:text-white underline"
+                        title="Reset Chat"
+                    >
+                        Reset Chat
+                    </button>
                     <button
                         onClick={() => setIsMemoryEnabled(prev => !prev)}
                         className="p-1 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors"
@@ -518,18 +547,18 @@ export const ChatTutor: React.FC<ChatTutorProps> = ({ moduleId, sessionToken, st
                                                         <h4 className="font-bold text-sm text-yellow-700 dark:text-yellow-300">Suggestion</h4>
                                                     </div>
                                                     <p className="text-sm text-indigo-800 dark:text-indigo-100 italic">"{suggestionText.trim()}"</p>
-                                                    <button onClick={() => handleSuggestionSubmit(suggestionText, msg.id)} disabled={isSubmitted} className="text-xs w-full text-white font-semibold py-1.5 px-3 rounded-full mt-3 transition-colors flex items-center justify-center gap-2 disabled:bg-green-600 disabled:cursor-not-allowed bg-indigo-600 hover:bg-indigo-700">
+                                                    <button onClick={() => onSuggestionProposed(suggestionText.trim(), msg.id)} disabled={isSubmitted} className="text-xs w-full text-white font-semibold py-1.5 px-3 rounded-full mt-3 transition-colors flex items-center justify-center gap-2 disabled:bg-green-600 disabled:cursor-not-allowed bg-indigo-600 hover:bg-indigo-700">
                                                         {isSubmitted ? <><CheckCircleIcon className="h-4 w-4" /> Submitted</> : 'Propose to Owner'}
                                                     </button>
                                                 </div>
                                             );
                                         }
-                                        const parts = text.split(/(\[(?:\d{2}:)?\d{2}:\d{2}\])/g);
+                                        const parts = text.split(/(\((?:\d{1,2}):\d{2}\)|\[(?:(?:\d{1,2}):)?\d{2}:\d{2}\])/g);
                                         const renderedParts = parts.map((part: string, partIndex: number) => {
                                             const time = parseTimestamp(part);
                                             if (time !== null) {
                                                 if (showTimestamps) {
-                                                    return <button key={partIndex} onClick={() => onTimestampClick(time)} className="bg-indigo-500 text-white font-mono px-2 py-1 rounded-md text-sm hover:bg-indigo-400 transition-colors">{part.replace(/[\[\]]/g, '')}</button>;
+                                                    return <button key={partIndex} onClick={() => onTimestampClick(time)} className="bg-indigo-500 text-white font-mono px-2 py-1 rounded-md text-sm hover:bg-indigo-400 transition-colors">{part.replace(/[\[\]()]/g, '')}</button>;
                                                 }
                                                 return null;
                                             }
@@ -639,10 +668,21 @@ export const ChatTutor: React.FC<ChatTutorProps> = ({ moduleId, sessionToken, st
                         )}
                     </div>
                 ))}
-                {error && <p className="text-red-500 dark:text-red-400 text-center text-sm p-2 bg-red-100 dark:bg-red-900/50 rounded-md">{error}</p>}
+                {error && (
+                    <div className="text-red-400 dark:text-red-300 text-center text-sm p-2 bg-red-100 dark:bg-red-900/50 rounded-md">
+                        {error}
+                        <div className="mt-2">
+                            <button onClick={retryLastMessage} className="text-indigo-600 dark:text-indigo-400 underline mr-4 font-semibold">Try Again</button>
+                            <button onClick={handleSubmitToOwnerOnError} className="text-yellow-600 dark:text-yellow-400 underline font-semibold">Submit to Owner</button>
+                        </div>
+                    </div>
+                )}
                 <div ref={messagesEndRef} />
             </div>
             <div className="p-4 border-t border-slate-200 dark:border-slate-700 flex-shrink-0">
+                {steps[currentStepIndex] && (
+                    <p className="text-sm text-slate-400 mb-1 px-4">You’re on: <span className="font-medium text-slate-700 dark:text-white">{steps[currentStepIndex].title}</span></p>
+                )}
                 <form onSubmit={handleFormSubmit} className="flex items-center gap-2 bg-slate-100 dark:bg-slate-900/80 rounded-full border border-slate-300 dark:border-slate-700 p-1.5 focus-within:ring-2 focus-within:ring-indigo-500 transition-all">
                     <input
                         data-testid="chat-input"

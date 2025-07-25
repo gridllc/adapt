@@ -1,9 +1,9 @@
 export const parseTimestamp = (text: string): number | null => {
-    const match = text.match(/\[(?:(\d{2}):)?(\d{2}):(\d{2})\]/);
+    const match = text.match(/(?:\[|\()?(\d{1,2}):(\d{2})(?::(\d{2}))?(?:\]|\))?/);
     if (match) {
-        const hours = parseInt(match[1] || '0', 10);
-        const minutes = parseInt(match[2], 10);
-        const seconds = parseInt(match[3], 10);
+        const hours = match[3] ? parseInt(match[1]) : 0;
+        const minutes = match[3] ? parseInt(match[2]) : parseInt(match[1]);
+        const seconds = match[3] ? parseInt(match[3]) : parseInt(match[2]);
         return hours * 3600 + minutes * 60 + seconds;
     }
     return null;

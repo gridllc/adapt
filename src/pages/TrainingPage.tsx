@@ -46,6 +46,7 @@ const TrainingPage: React.FC = () => {
   const [stepsContext, setStepsContext] = useState('');
   const [fullTranscript, setFullTranscript] = useState('');
   const [sessionToken, setSessionToken] = useState('');
+  const [submittedChatSuggestions, setSubmittedChatSuggestions] = useState<Record<string, boolean>>({});
   const isAdmin = !!user;
 
   const isDebug = useMemo(() => new URLSearchParams(location.search).get('debug') === '1', [location.search]);
@@ -248,6 +249,15 @@ const TrainingPage: React.FC = () => {
     setCurrentStepIndex(index);
   }, [handleSeekTo, setCurrentStepIndex]);
 
+  const handleTimestampClick = useCallback((time: number) => {
+    handleSeekTo(time);
+    // Find the step corresponding to the timestamp and make it active
+    const stepIndex = steps.findIndex(step => time >= step.start && time < step.end);
+    if (stepIndex !== -1 && stepIndex !== currentStepIndex) {
+      setCurrentStepIndex(stepIndex);
+    }
+  }, [handleSeekTo, steps, currentStepIndex, setCurrentStepIndex]);
+
   useEffect(() => {
     // Clear checkpoint-specific feedback when the step changes
     dispatch({ type: 'RESET_CHECKPOINT_STATE' });
@@ -327,6 +337,23 @@ const TrainingPage: React.FC = () => {
       addToast('error', 'Submission Failed', 'Could not submit suggestion.');
     }
   }, [instructionSuggestion, moduleId, currentStepIndex, addToast]);
+
+  const handleChatSuggestionSubmit = useCallback(async (suggestionText: string, messageId: string) => {
+    if (!suggestionText.trim() || !moduleId) {
+      addToast('error', 'Empty Suggestion', 'Cannot submit a blank suggestion.');
+      return;
+    }
+
+    try {
+      await submitSuggestion(moduleId, currentStepIndex, suggestionText.trim());
+      setSubmittedChatSuggestions(prev => ({ ...prev, [messageId]: true }));
+      addToast('success', 'Suggestion Submitted', 'Thank you for your feedback! The module owner will review it.');
+    } catch (err) {
+      console.error("Failed to submit suggestion", err);
+      const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred.';
+      addToast('error', 'Submission Failed', `Could not submit suggestion: ${errorMessage}`);
+    }
+  }, [moduleId, currentStepIndex, addToast]);
 
 
   const handleTutorHelp = useCallback((question: string, userAnswer?: string) => {
@@ -516,13 +543,15 @@ const TrainingPage: React.FC = () => {
                   sessionToken={sessionToken}
                   stepsContext={stepsContext}
                   fullTranscript={fullTranscript}
-                  onTimestampClick={handleSeekTo}
+                  onTimestampClick={handleTimestampClick}
                   currentStepIndex={currentStepIndex}
                   steps={steps}
                   onClose={() => dispatch({ type: 'SET_ACTIVE_TAB', payload: 'steps' })}
                   initialPrompt={initialChatPrompt}
                   isDebug={isDebug}
                   templateContext={moduleData.metadata?.templateContext}
+                  onSuggestionProposed={handleChatSuggestionSubmit}
+                  submittedSuggestions={submittedChatSuggestions}
                 />
               )}
             </>
