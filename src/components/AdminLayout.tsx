@@ -9,7 +9,7 @@ import {
     LogOutIcon,
     SunIcon,
     MoonIcon,
-    BookOpenIcon,
+    HomeIcon,
     MenuIcon,
     XIcon,
     PlayCircleIcon
@@ -25,7 +25,7 @@ const AdminLayout: React.FC = () => {
         { to: '/dashboard/routines', label: 'Routines', icon: PlayCircleIcon },
         { to: '/create', label: 'Create Module', icon: LightbulbIcon },
         { to: '/dashboard/questions', label: 'Question Log', icon: HelpCircleIcon },
-        { to: '/', label: 'Home', icon: BookOpenIcon },
+        { to: '/home-ai', label: 'Home AI', icon: HomeIcon },
     ];
 
     const NavContent = () => (
