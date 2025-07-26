@@ -1,5 +1,4 @@
 // src/services/authService.ts
-
 import firebase from 'firebase/compat/app';
 import 'firebase/compat/auth';
 import { auth } from '@/firebase';
@@ -16,7 +15,8 @@ export async function signUp(
     { email, password }: SignUpWithPasswordCredentials
 ): Promise<AuthResponse> {
     if (!password) {
-        return { user: null, error: { name: 'AuthError', code: 'auth/missing-password', message: 'Password is required for sign up.' } };
+        const error: AuthError = { name: 'AuthError', code: 'auth/missing-password', message: 'Password is required for sign up.' };
+        return { user: null, error };
     }
     try {
         const userCred = await auth.createUserWithEmailAndPassword(email, password);
@@ -34,11 +34,16 @@ export async function signInWithPassword(
     stayLoggedIn: boolean = false
 ): Promise<AuthResponse> {
     if (!password) {
-        return { user: null, error: { name: 'AuthError', code: 'auth/missing-password', message: 'Password is required for sign in.' } };
+        const error: AuthError = { name: 'AuthError', code: 'auth/missing-password', message: 'Password is required for sign in.' };
+        return { user: null, error };
     }
     try {
-        const persistence = stayLoggedIn ? firebase.auth.Auth.Persistence.LOCAL : firebase.auth.Auth.Persistence.SESSION;
+        const persistence = stayLoggedIn
+            ? firebase.auth.Auth.Persistence.LOCAL
+            : firebase.auth.Auth.Persistence.SESSION;
+
         await auth.setPersistence(persistence);
+
         const userCred = await auth.signInWithEmailAndPassword(email, password);
         return { user: userCred.user, error: null };
     } catch (err) {
@@ -96,7 +101,8 @@ export async function updateUserPassword(
 ): Promise<{ error: AuthError | null }> {
     const user = auth.currentUser;
     if (!user) {
-        return { error: { name: 'AuthError', code: 'auth/no-current-user', message: 'User not authenticated.' } };
+        const error: AuthError = { name: 'AuthError', code: 'auth/no-current-user', message: 'User not authenticated.' };
+        return { error };
     }
     try {
         await user.updatePassword(newPassword);

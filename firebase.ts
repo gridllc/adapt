@@ -18,9 +18,7 @@ const firebaseConfig = {
 
 // --- Initialize Firebase ---
 // This pattern prevents re-initializing the app on hot reloads.
-const app = firebase.apps.length ? firebase.app() : firebase.initializeApp(firebaseConfig);
-export const firebaseApp = app;
-
+const app = !firebase.apps.length ? firebase.initializeApp(firebaseConfig) : firebase.app();
 
 // --- Initialize Firebase Services ---
 export const auth = app.auth();
@@ -30,6 +28,7 @@ export const functions = app.functions('us-central1');
 
 // --- Connect to Emulators (Only in Dev Mode) ---
 if (import.meta.env.DEV) {
+    // Use a global flag to prevent re-connecting on hot reloads
     if (!(globalThis as any).EMULATORS_CONNECTED) {
         console.log('Connecting to Firebase emulators...');
         try {
