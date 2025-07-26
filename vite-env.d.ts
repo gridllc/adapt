@@ -13,6 +13,7 @@ interface ImportMetaEnv {
   readonly VITE_FIREBASE_APP_ID: string;
   readonly VITE_FIREBASE_MEASUREMENT_ID: string;
   readonly VITE_API_KEY: string; // Renamed for consistency
+  readonly VITE_API_BASE_URL: string;
 
   // Vite's built-in environment variables
   BASE_URL: string;

@@ -1,12 +1,12 @@
 
 
 
-import { onRequest } from "firebase-functions/v2/https";
+import * as functions from "firebase-functions";
 import * as logger from "firebase-functions/logger";
 import * as admin from "firebase-admin";
 import { getStorage } from "firebase-admin/storage";
 import { FieldValue } from "firebase-admin/firestore";
-import express, { Request, Response, NextFunction } from "express";
+import express from "express";
 import cors from "cors";
 
 // --- Initialization ---
@@ -23,7 +23,7 @@ apiApp.use(cors({ origin: true }));
 apiApp.use(express.json());
 
 // --- Authentication Middleware ---
-const authed = async (req: Request, res: Response, next: NextFunction) => {
+const authed = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
     const idToken = req.headers.authorization?.split("Bearer ")[1];
     if (!idToken) {
         return res.status(401).send("Unauthorized: No token provided.");
@@ -31,15 +31,15 @@ const authed = async (req: Request, res: Response, next: NextFunction) => {
 
     try {
         const decodedToken = await admin.auth().verifyIdToken(idToken);
-        (req as any).user = decodedToken;
-        return next();  // ✅ Ensure the request proceeds if valid
+        (req as any).auth = decodedToken;
+        return next();
     } catch (err) {
         return res.status(403).send("Unauthorized: Invalid token.");
     }
 };
 
 // --- Public Routes ---
-apiApp.get("/modules", async (req: Request, res: Response) => {
+apiApp.get("/modules", async (req: express.Request, res: express.Response) => {
     try {
         const modulesSnap = await db.collection("modules").get();
         const sessionsSnap = await db.collection("sessions").get();
@@ -73,7 +73,7 @@ apiApp.get("/modules", async (req: Request, res: Response) => {
     }
 });
 
-apiApp.get("/modules/:slug", async (req: Request, res: Response) => {
+apiApp.get("/modules/:slug", async (req: express.Request, res: express.Response) => {
     try {
         const doc = await db.collection("modules").doc(req.params.slug).get();
         if (!doc.exists) {
@@ -82,17 +82,19 @@ apiApp.get("/modules/:slug", async (req: Request, res: Response) => {
         return res.status(200).json(doc.data());
     } catch (err) {
         logger.error(`Error fetching module ${req.params.slug}:`, err);
-        return res.status(500).json({ error: "Internal server error." });
+        return res.status(500).json({ error: "Internal server error" });
     }
 });
 
 // --- Authenticated Routes ---
 
 // Modules
-apiApp.post("/modules", authed, async (req: Request, res: Response) => {
+apiApp.post("/modules", authed, async (req: express.Request, res: express.Response) => {
     const uid = (req as any).auth.uid;
     const { moduleData } = req.body;
-    if (!moduleData?.slug) return res.status(400).json({ error: "Module data with a slug is required." });
+    if (!moduleData?.slug) {
+        return res.status(400).json({ error: "Module data with a slug is required." });
+    }
 
     const moduleRef = db.collection("modules").doc(moduleData.slug);
     const doc = await moduleRef.get();
@@ -106,14 +108,29 @@ apiApp.post("/modules", authed, async (req: Request, res: Response) => {
     return res.status(200).json(savedDoc.data());
 });
 
-apiApp.delete("/modules/:slug", authed, async (req: Request, res: Response) => {
+apiApp.delete("/modules/:slug", authed, async (req: express.Request, res: express.Response) => {
     const uid = (req as any).auth.uid;
     const { slug } = req.params;
     const moduleRef = db.collection("modules").doc(slug);
     const doc = await moduleRef.get();
-    if (!doc.exists || doc.data()?.user_id !== uid) return res.status(403).json({ error: "You do not own this module." });
+    if (!doc.exists || doc.data()?.user_id !== uid) {
+        return res.status(403).json({ error: "You do not own this module." });
+    }
 
-    const collectionsToDelete = ["tutorLogs", "sessions", "chatMessages", "checkpointResponses", "aiSuggestions", "traineeSuggestions", "flagged_questions", "feedbackLogs"];
+    const collectionsToDelete = [
+        "tutorLogs",
+        "sessions",
+        "chatMessages",
+        "checkpointResponses",
+        "aiSuggestions",
+        "traineeSuggestions",
+        "flagged_questions",
+        "feedbackLogs",
+        "manualUploads",
+        "routines",
+        "quizAttempts",
+        "stepDurations",
+    ];
     const deletionPromises: Promise<any>[] = collectionsToDelete.map((coll) => db.collection(coll).where("module_id", "==", slug).get().then((snap) => {
         const batch = db.batch();
         snap.forEach((d) => batch.delete(d.ref));
@@ -128,7 +145,7 @@ apiApp.delete("/modules/:slug", authed, async (req: Request, res: Response) => {
 });
 
 // Signed URLs
-apiApp.post("/uploads/signed-url", authed, async (req: Request, res: Response) => {
+apiApp.post("/uploads/signed-url", authed, async (req: express.Request, res: express.Response) => {
     const uid = (req as any).auth.uid;
     const { type, id, contentType, fileExtension } = req.body; // type: 'module' | 'routine' | 'manual'
     let filePath;
@@ -150,9 +167,11 @@ apiApp.post("/uploads/signed-url", authed, async (req: Request, res: Response) =
     return res.status(200).json({ uploadUrl: url, filePath });
 });
 
-apiApp.post("/downloads/signed-url", authed, async (req: Request, res: Response) => {
+apiApp.post("/downloads/signed-url", authed, async (req: express.Request, res: express.Response) => {
     const { filePath } = req.body;
-    if (!filePath) return res.status(400).json({ error: "A file path is required." });
+    if (!filePath) {
+        return res.status(400).json({ error: "A file path is required." });
+    }
     const file = storage.bucket(BUCKET_NAME).file(filePath);
     const [url] = await file.getSignedUrl({ version: "v4", action: "read", expires: Date.now() + 60 * 60 * 1000 });
     return res.status(200).json({ downloadUrl: url });
@@ -160,16 +179,20 @@ apiApp.post("/downloads/signed-url", authed, async (req: Request, res: Response)
 
 
 // Sessions
-apiApp.get("/sessions", async (req: Request, res: Response) => {
+apiApp.get("/sessions", async (req: express.Request, res: express.Response) => {
     const { moduleId, sessionToken } = req.query;
-    if (!moduleId || !sessionToken) return res.status(400).json({ error: "moduleId and sessionToken are required." });
+    if (!moduleId || !sessionToken) {
+        return res.status(400).json({ error: "moduleId and sessionToken are required." });
+    }
     const snap = await db.collection("sessions").where("module_id", "==", moduleId as string).where("session_token", "==", sessionToken as string).limit(1).get();
     return res.status(200).json(snap.empty ? null : snap.docs[0].data());
 });
 
-apiApp.post("/sessions", async (req: Request, res: Response) => {
+apiApp.post("/sessions", async (req: express.Request, res: express.Response) => {
     const { moduleId, sessionToken, ...dataToSave } = req.body;
-    if (!moduleId || !sessionToken) return res.status(400).json({ error: "moduleId and sessionToken are required." });
+    if (!moduleId || !sessionToken) {
+        return res.status(400).json({ error: "moduleId and sessionToken are required." });
+    }
     const snap = await db.collection("sessions").where("module_id", "==", moduleId).where("session_token", "==", sessionToken).limit(1).get();
     (dataToSave as any).updated_at = FieldValue.serverTimestamp();
     if (snap.empty) {
@@ -181,11 +204,15 @@ apiApp.post("/sessions", async (req: Request, res: Response) => {
     return res.status(204).send();
 });
 
-apiApp.get("/sessions/summary", async (req: Request, res: Response) => {
+apiApp.get("/sessions/summary", async (req: express.Request, res: express.Response) => {
     const { moduleId, sessionToken } = req.query;
-    if (!moduleId || !sessionToken) return res.status(400).json({ error: "moduleId and sessionToken are required." });
+    if (!moduleId || !sessionToken) {
+        return res.status(400).json({ error: "moduleId and sessionToken are required." });
+    }
     const snap = await db.collection("sessions").where("module_id", "==", moduleId as string).where("session_token", "==", sessionToken as string).limit(1).get();
-    if (snap.empty) return res.status(404).json({ error: "Session not found." });
+    if (snap.empty) {
+        return res.status(404).json({ error: "Session not found." });
+    }
     const sessionData = snap.docs[0].data();
     const events = (sessionData.liveCoachEvents || []).filter((e: any) => e.eventType === "step_advance").sort((a: any, b: any) => a.timestamp - b.timestamp);
     const durationsPerStep: Record<number, number> = {};
@@ -196,31 +223,43 @@ apiApp.get("/sessions/summary", async (req: Request, res: Response) => {
     return res.status(200).json(summary);
 });
 
-apiApp.get("/sessions/count/total", async (req: Request, res: Response) => res.status(200).json((await db.collection("sessions").count().get()).data().count));
-apiApp.get("/sessions/count/completed", async (req: Request, res: Response) => res.status(200).json((await db.collection("sessions").where("is_completed", "==", true).count().get()).data().count));
+apiApp.get("/sessions/count/total", async (req: express.Request, res: express.Response) => {
+    return res.status(200).json((await db.collection("sessions").count().get()).data().count);
+});
+apiApp.get("/sessions/count/completed", async (req: express.Request, res: express.Response) => {
+    return res.status(200).json((await db.collection("sessions").where("is_completed", "==", true).count().get()).data().count);
+});
 
 // Chat
-apiApp.get("/chat", async (req: Request, res: Response) => {
+apiApp.get("/chat", async (req: express.Request, res: express.Response) => {
     const { moduleId, sessionToken } = req.query;
-    if (!moduleId || !sessionToken) return res.status(400).json({ error: "moduleId and sessionToken are required." });
+    if (!moduleId || !sessionToken) {
+        return res.status(400).json({ error: "moduleId and sessionToken are required." });
+    }
     const snap = await db.collection("chatMessages").where("module_id", "==", moduleId as string).where("session_token", "==", sessionToken as string).orderBy("created_at").get();
     return res.status(200).json(snap.docs.map((doc) => ({ ...doc.data(), id: doc.id })));
 });
 
-apiApp.post("/chat", async (req: Request, res: Response) => {
+apiApp.post("/chat", async (req: express.Request, res: express.Response) => {
     const { moduleId, sessionToken, message } = req.body;
-    if (!moduleId || !sessionToken || !message?.id) return res.status(400).json({ error: "moduleId, sessionToken, and a message with an ID are required." });
+    if (!moduleId || !sessionToken || !message?.id) {
+        return res.status(400).json({ error: "moduleId, sessionToken, and a message with an ID are required." });
+    }
     await db.collection("chatMessages").doc(message.id).set({ ...message, module_id: moduleId, session_token: sessionToken, created_at: FieldValue.serverTimestamp() });
     return res.status(204).send();
 });
 
-apiApp.post("/chat/feedback", authed, async (req: Request, res: Response) => {
+apiApp.post("/chat/feedback", authed, async (req: express.Request, res: express.Response) => {
     const { messageId, feedback } = req.body;
-    if (!messageId || !feedback) return res.status(400).json({ error: "messageId and feedback are required." });
+    if (!messageId || !feedback) {
+        return res.status(400).json({ error: "messageId and feedback are required." });
+    }
     await db.collection("chatMessages").doc(messageId).update({ feedback });
     return res.status(204).send();
 });
 
 
-// This is the single exported function for the entire API
-export const api = onRequest({ secrets: ["API_KEY"] }, apiApp);
+// --- Export the express app as a Cloud Function ---
+// The Firebase SDK is designed to handle Express apps, and the cors middleware
+// within the app will manage CORS headers and preflight requests.
+export const api = functions.https.onRequest(apiApp);

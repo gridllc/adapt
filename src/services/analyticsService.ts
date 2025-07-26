@@ -1,6 +1,8 @@
 import type { AnalysisHotspot, QuestionStats, TutorLogRow, AppModuleWithStats } from '@/types';
 import { auth } from '@/firebase';
 
+const baseUrl = import.meta.env.VITE_API_URL || '/api';
+
 async function authedApiFetch<T>(url: string, options?: RequestInit): Promise<T> {
     const token = auth.currentUser ? await auth.currentUser.getIdToken() : null;
     const headers = new Headers(options?.headers);
@@ -11,7 +13,7 @@ async function authedApiFetch<T>(url: string, options?: RequestInit): Promise<T>
         headers.set('Authorization', `Bearer ${token}`);
     }
 
-    const response = await fetch(url, { ...options, headers });
+    const response = await fetch(`${baseUrl}${url}`, { ...options, headers });
     if (!response.ok) {
         const errorBody = await response.json().catch(() => ({ error: 'An unknown API error occurred.' }));
         throw new Error(errorBody.error || `Request failed with status ${response.status}`);
@@ -20,17 +22,17 @@ async function authedApiFetch<T>(url: string, options?: RequestInit): Promise<T>
 }
 
 export const getQuestionFrequency = async (moduleId: string): Promise<QuestionStats[]> => {
-    const url = `/api/analytics/question-frequency?moduleId=${encodeURIComponent(moduleId)}`;
+    const url = `/analytics/question-frequency?moduleId=${encodeURIComponent(moduleId)}`;
     return authedApiFetch<QuestionStats[]>(url);
 };
 
 export const getTutorLogs = async (moduleId: string): Promise<TutorLogRow[]> => {
-    const url = `/api/analytics/tutor-logs?moduleId=${encodeURIComponent(moduleId)}`;
+    const url = `/analytics/tutor-logs?moduleId=${encodeURIComponent(moduleId)}`;
     return authedApiFetch<TutorLogRow[]>(url);
 };
 
 export const getAllTutorLogs = async (): Promise<TutorLogRow[]> => {
-    return authedApiFetch<TutorLogRow[]>('/api/analytics/tutor-logs/all');
+    return authedApiFetch<TutorLogRow[]>('/analytics/tutor-logs/all');
 };
 
 export const getQuestionLogsByQuestion = async (params: {
@@ -47,7 +49,7 @@ export const getQuestionLogsByQuestion = async (params: {
         ...(params.startDate && { startDate: params.startDate }),
         ...(params.endDate && { endDate: params.endDate }),
     }).toString();
-    const url = `/api/analytics/question-logs?${query}`;
+    const url = `/analytics/question-logs?${query}`;
     return authedApiFetch<TutorLogRow[]>(url);
 };
 

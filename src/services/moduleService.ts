@@ -1,6 +1,8 @@
 import type { AppModule, AppModuleWithStats, ModuleForInsert } from '@/types';
 import { auth } from '@/firebase';
 
+const baseUrl = import.meta.env.VITE_API_URL || '/api';
+
 async function authedApiFetch<T>(url: string, options?: RequestInit): Promise<T> {
     const token = auth.currentUser ? await auth.currentUser.getIdToken() : null;
     const headers = new Headers(options?.headers);
@@ -11,7 +13,7 @@ async function authedApiFetch<T>(url: string, options?: RequestInit): Promise<T>
         headers.set('Authorization', `Bearer ${token}`);
     }
 
-    const response = await fetch(url, { ...options, headers });
+    const response = await fetch(`${baseUrl}${url}`, { ...options, headers });
 
     if (!response.ok) {
         const errorBody = await response.json().catch(() => ({ error: 'An unknown API error occurred.' }));
@@ -27,6 +29,7 @@ async function authedApiFetch<T>(url: string, options?: RequestInit): Promise<T>
 export const getModule = async (slug: string): Promise<AppModule | undefined> => {
     if (slug.startsWith('how-to-')) {
         try {
+            // Local JSON files are not served via the API, so they don't get the baseUrl
             const response = await fetch(`/modules/${slug}.json`);
             if (response.ok) return await response.json();
         } catch (e) {
@@ -34,7 +37,7 @@ export const getModule = async (slug: string): Promise<AppModule | undefined> =>
         }
     }
     // Note: The public API does not require authentication for GET
-    const response = await fetch(`/api/modules/${slug}`);
+    const response = await fetch(`${baseUrl}/modules/${slug}`);
     if (!response.ok) {
         const errorBody = await response.text();
         throw new Error(`Failed to fetch module: ${response.status}. Body: ${errorBody}`);
@@ -44,7 +47,7 @@ export const getModule = async (slug: string): Promise<AppModule | undefined> =>
 
 export const getAvailableModules = async (): Promise<AppModuleWithStats[]> => {
     // Note: The public API does not require authentication for GET
-    const response = await fetch('/api/modules');
+    const response = await fetch(`${baseUrl}/modules`);
     if (!response.ok) {
         const errorBody = await response.text();
         throw new Error(`Failed to fetch available modules: ${response.status}. Body: ${errorBody}`);
@@ -69,7 +72,7 @@ export const saveModule = async ({
             contentType: videoFile.type,
             fileExtension,
         };
-        const { uploadUrl, filePath } = await authedApiFetch<{ uploadUrl: string, filePath: string }>('/api/uploads/signed-url', {
+        const { uploadUrl, filePath } = await authedApiFetch<{ uploadUrl: string, filePath: string }>('/uploads/signed-url', {
             method: 'POST',
             body: JSON.stringify(signedUrlPayload),
         });
@@ -88,12 +91,12 @@ export const saveModule = async ({
     }
 
     const moduleToSave = { ...moduleData, video_url: videoUrlPath };
-    return authedApiFetch<AppModule>('/api/modules', {
+    return authedApiFetch<AppModule>('/modules', {
         method: 'POST',
         body: JSON.stringify({ moduleData: moduleToSave }),
     });
 };
 
 export const deleteModule = async (slug: string): Promise<void> => {
-    await authedApiFetch(`/api/modules/${slug}`, { method: 'DELETE' });
+    await authedApiFetch(`/modules/${slug}`, { method: 'DELETE' });
 };

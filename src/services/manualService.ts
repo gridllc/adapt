@@ -1,5 +1,7 @@
 import { auth } from '@/firebase';
 
+const baseUrl = import.meta.env.VITE_API_URL || '/api';
+
 async function authedApiFetch<T>(url: string, options?: RequestInit): Promise<T> {
     const token = auth.currentUser ? await auth.currentUser.getIdToken() : null;
     const headers = new Headers(options?.headers);
@@ -9,7 +11,7 @@ async function authedApiFetch<T>(url: string, options?: RequestInit): Promise<T>
     if (token) {
         headers.set('Authorization', `Bearer ${token}`);
     }
-    const response = await fetch(url, { ...options, headers });
+    const response = await fetch(`${baseUrl}${url}`, { ...options, headers });
     if (!response.ok) {
         const errorBody = await response.json().catch(() => ({ error: 'An unknown API error occurred.' }));
         throw new Error(errorBody.error || `Request failed with status ${response.status}`);
@@ -25,7 +27,7 @@ export const uploadManualForProcessing = async (file: File): Promise<string> => 
             id: file.name,
             contentType: file.type,
         };
-        const { uploadUrl, filePath } = await authedApiFetch<{ uploadUrl: string, filePath: string }>('/api/uploads/signed-url', {
+        const { uploadUrl, filePath } = await authedApiFetch<{ uploadUrl: string, filePath: string }>('/uploads/signed-url', {
             method: 'POST',
             body: JSON.stringify(payload),
         });

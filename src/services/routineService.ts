@@ -1,6 +1,8 @@
 import type { Routine } from '@/types';
 import { auth } from '@/firebase';
 
+const baseUrl = import.meta.env.VITE_API_URL || '/api';
+
 async function authedApiFetch<T>(url: string, options?: RequestInit): Promise<T> {
     const token = auth.currentUser ? await auth.currentUser.getIdToken() : null;
     const headers = new Headers(options?.headers);
@@ -11,7 +13,7 @@ async function authedApiFetch<T>(url: string, options?: RequestInit): Promise<T>
         headers.set('Authorization', `Bearer ${token}`);
     }
 
-    const response = await fetch(url, { ...options, headers });
+    const response = await fetch(`${baseUrl}${url}`, { ...options, headers });
     if (!response.ok) {
         const errorBody = await response.json().catch(() => ({ error: 'An unknown API error occurred.' }));
         throw new Error(errorBody.error || `Request failed with status ${response.status}`);
@@ -23,18 +25,18 @@ async function authedApiFetch<T>(url: string, options?: RequestInit): Promise<T>
 }
 
 export const getRoutinesForTemplate = async (templateId: string): Promise<Routine[]> => {
-    return authedApiFetch<Routine[]>(`/api/routines/template/${templateId}`);
+    return authedApiFetch<Routine[]>(`/routines/template/${templateId}`);
 };
 
 export const getAllRoutines = async (): Promise<Routine[]> => {
-    return authedApiFetch<Routine[]>('/api/routines');
+    return authedApiFetch<Routine[]>('/routines');
 };
 
 export const getRoutineForIntent = async (templateId: string, intent: string): Promise<Routine | null> => {
     try {
         const query = new URLSearchParams({ templateId, intent }).toString();
         // This can be public for the chat tutor to use
-        const response = await fetch(`/api/routines/intent?${query}`);
+        const response = await fetch(`${baseUrl}/routines/intent?${query}`);
         if (!response.ok) return null;
         return response.json();
     } catch (error) {
@@ -54,7 +56,7 @@ export const saveRoutine = async (routine: Omit<Routine, 'id'> & { id?: string }
             contentType: videoFile.type,
             fileExtension,
         };
-        const { uploadUrl, filePath } = await authedApiFetch<{ uploadUrl: string, filePath: string }>('/api/uploads/signed-url', {
+        const { uploadUrl, filePath } = await authedApiFetch<{ uploadUrl: string, filePath: string }>('/uploads/signed-url', {
             method: 'POST',
             body: JSON.stringify(payload)
         });
@@ -73,12 +75,12 @@ export const saveRoutine = async (routine: Omit<Routine, 'id'> & { id?: string }
     }
 
     const routineToSave = { ...routine, videoUrl: videoUrlPath };
-    return authedApiFetch<Routine>('/api/routines', {
+    return authedApiFetch<Routine>('/routines', {
         method: 'POST',
         body: JSON.stringify({ routineData: routineToSave }),
     });
 };
 
 export const deleteRoutine = async (routineId: string): Promise<void> => {
-    await authedApiFetch<void>(`/api/routines/${routineId}`, { method: 'DELETE' });
+    await authedApiFetch<void>(`/routines/${routineId}`, { method: 'DELETE' });
 };
