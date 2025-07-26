@@ -1,22 +1,11 @@
 // src/services/authService.ts
 
-import {
-    getAuth,
-    type User,
-    type Auth,
-    type AuthError,
-    createUserWithEmailAndPassword,
-    signInWithEmailAndPassword,
-    signOut as firebaseSignOut,
-    onAuthStateChanged as firebaseOnAuthStateChanged,
-    sendPasswordResetEmail as firebaseSendPasswordResetEmail,
-    updatePassword as firebaseUpdatePassword,
-} from 'firebase/auth';
-import { firebaseApp } from '@/firebase';
+import firebase from 'firebase/compat/app';
+import 'firebase/compat/auth';
+import { auth } from '@/firebase';
 
-const auth: Auth = getAuth(firebaseApp);
-
-export type { User };
+export type User = firebase.User;
+export type AuthError = firebase.auth.Error;
 export type AuthResponse = { user: User | null; error: AuthError | null };
 export interface SignUpWithPasswordCredentials { email: string; password: string; }
 
@@ -27,10 +16,10 @@ export async function signUp(
     { email, password }: SignUpWithPasswordCredentials
 ): Promise<AuthResponse> {
     if (!password) {
-        return { user: null, error: new Error('Password is required for sign up.') as unknown as AuthError };
+        return { user: null, error: { name: 'AuthError', code: 'auth/missing-password', message: 'Password is required for sign up.' } };
     }
     try {
-        const userCred = await createUserWithEmailAndPassword(auth, email, password);
+        const userCred = await auth.createUserWithEmailAndPassword(email, password);
         return { user: userCred.user, error: null };
     } catch (err) {
         return { user: null, error: err as AuthError };
@@ -41,13 +30,16 @@ export async function signUp(
  * Sign in an existing user.
  */
 export async function signInWithPassword(
-    { email, password }: SignUpWithPasswordCredentials
+    { email, password }: SignUpWithPasswordCredentials,
+    stayLoggedIn: boolean = false
 ): Promise<AuthResponse> {
     if (!password) {
-        return { user: null, error: new Error('Password is required for sign in.') as unknown as AuthError };
+        return { user: null, error: { name: 'AuthError', code: 'auth/missing-password', message: 'Password is required for sign in.' } };
     }
     try {
-        const userCred = await signInWithEmailAndPassword(auth, email, password);
+        const persistence = stayLoggedIn ? firebase.auth.Auth.Persistence.LOCAL : firebase.auth.Auth.Persistence.SESSION;
+        await auth.setPersistence(persistence);
+        const userCred = await auth.signInWithEmailAndPassword(email, password);
         return { user: userCred.user, error: null };
     } catch (err) {
         return { user: null, error: err as AuthError };
@@ -59,7 +51,7 @@ export async function signInWithPassword(
  */
 export async function signOut(): Promise<{ error: AuthError | null }> {
     try {
-        await firebaseSignOut(auth);
+        await auth.signOut();
         return { error: null };
     } catch (err) {
         return { error: err as AuthError };
@@ -79,7 +71,7 @@ export function getCurrentUser(): User | null {
 export function onAuthStateChange(
     callback: (user: User | null) => void
 ): () => void {
-    return firebaseOnAuthStateChanged(auth, callback);
+    return auth.onAuthStateChanged(callback);
 }
 
 /**
@@ -89,7 +81,7 @@ export async function resetPasswordEmail(
     email: string
 ): Promise<{ error: AuthError | null }> {
     try {
-        await firebaseSendPasswordResetEmail(auth, email, { url: `${window.location.origin}/update-password` });
+        await auth.sendPasswordResetEmail(email, { url: `${window.location.origin}/update-password` });
         return { error: null };
     } catch (err) {
         return { error: err as AuthError };
@@ -104,10 +96,10 @@ export async function updateUserPassword(
 ): Promise<{ error: AuthError | null }> {
     const user = auth.currentUser;
     if (!user) {
-        return { error: new Error('User not authenticated.') as unknown as AuthError };
+        return { error: { name: 'AuthError', code: 'auth/no-current-user', message: 'User not authenticated.' } };
     }
     try {
-        await firebaseUpdatePassword(user, newPassword);
+        await user.updatePassword(newPassword);
         return { error: null };
     } catch (err) {
         return { error: err as AuthError };
