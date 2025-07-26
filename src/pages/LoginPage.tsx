@@ -8,15 +8,29 @@ const LoginPage: React.FC = () => {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [showPassword, setShowPassword] = useState(false);
+    const [stayLoggedIn, setStayLoggedIn] = useState(true); // Default to true
     const [error, setError] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(false);
 
     const { signIn, signUp, isAuthenticated, isLoading: isAuthLoading } = useAuth();
     const navigate = useNavigate();
     const location = useLocation();
-    
+
     const from = (location.state as { from: Location })?.from?.pathname || '/';
-    
+
+    // Get persisted preference on mount
+    useEffect(() => {
+        const saved = localStorage.getItem('stayLoggedIn');
+        if (saved !== null) {
+            setStayLoggedIn(saved === 'true');
+        }
+    }, []);
+
+    // Persist preference on change
+    useEffect(() => {
+        localStorage.setItem('stayLoggedIn', String(stayLoggedIn));
+    }, [stayLoggedIn]);
+
     // Redirect if user is already logged in
     useEffect(() => {
         if (isAuthenticated && !isAuthLoading) {
@@ -31,7 +45,7 @@ const LoginPage: React.FC = () => {
 
         try {
             const { error } = isLoginView
-                ? await signIn({ email, password })
+                ? await signIn(email, password, stayLoggedIn)
                 : await signUp({ email, password });
 
             if (error) {
@@ -57,7 +71,7 @@ const LoginPage: React.FC = () => {
     return (
         <div className="flex flex-col items-center justify-center min-h-screen p-6 bg-slate-50 dark:bg-slate-900">
             <div className="w-full max-w-md">
-                 <button onClick={() => navigate('/')} className="absolute top-8 left-8 text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors flex items-center gap-2">
+                <button onClick={() => navigate('/')} className="absolute top-8 left-8 text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors flex items-center gap-2">
                     <BookOpenIcon className="h-5 w-5" />
                     <span>Back to Home</span>
                 </button>
@@ -80,7 +94,7 @@ const LoginPage: React.FC = () => {
                     <form onSubmit={handleSubmit} className="space-y-6">
                         <div>
                             <label htmlFor="email" className="sr-only">Email</label>
-                             <input
+                            <input
                                 id="email"
                                 name="email"
                                 type="email"
@@ -93,8 +107,8 @@ const LoginPage: React.FC = () => {
                             />
                         </div>
                         <div>
-                             <label htmlFor="password" className="sr-only">Password</label>
-                             <div className="relative">
+                            <label htmlFor="password" className="sr-only">Password</label>
+                            <div className="relative">
                                 <input
                                     id="password"
                                     name="password"
@@ -116,8 +130,23 @@ const LoginPage: React.FC = () => {
                                 </button>
                             </div>
                         </div>
-                        <div className="text-right">
-                             <Link to="/reset-password" className="text-sm text-indigo-600 dark:text-indigo-400 hover:underline">Forgot Password?</Link>
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center">
+                                <input
+                                    id="stayLoggedIn"
+                                    name="stayLoggedIn"
+                                    type="checkbox"
+                                    checked={stayLoggedIn}
+                                    onChange={(e) => setStayLoggedIn(e.target.checked)}
+                                    className="h-4 w-4 rounded border-slate-300 dark:border-slate-600 text-indigo-600 focus:ring-indigo-500"
+                                />
+                                <label htmlFor="stayLoggedIn" className="ml-2 block text-sm text-slate-600 dark:text-slate-300">
+                                    Stay logged in
+                                </label>
+                            </div>
+                            <div className="text-sm">
+                                <Link to="/reset-password" className="font-medium text-indigo-600 dark:text-indigo-400 hover:underline">Forgot Password?</Link>
+                            </div>
                         </div>
                         <button
                             type="submit"

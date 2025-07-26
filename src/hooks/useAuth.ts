@@ -6,8 +6,8 @@ interface AuthContextType {
     isAuthenticated: boolean;
     user: User | null;
     isLoading: boolean;
-    signIn: typeof authService.signInWithPassword;
-    login: typeof authService.signInWithPassword; // Alias for backward compatibility
+    signIn: typeof authService.signIn;
+    login: typeof authService.signIn; // Alias for backward compatibility
     signUp: typeof authService.signUp;
     signOut: typeof authService.signOut;
     resetPasswordEmail: typeof authService.resetPasswordEmail;
@@ -46,8 +46,8 @@ export const AuthProvider: React.FC<{ children: ReactNode, debug?: boolean }> = 
         user,
         isAuthenticated: !!user,
         isLoading,
-        signIn: authService.signInWithPassword,
-        login: authService.signInWithPassword, // Add alias to value
+        signIn: authService.signIn,
+        login: authService.signIn, // Add alias to value
         signUp: authService.signUp,
         signOut: authService.signOut,
         resetPasswordEmail: authService.resetPasswordEmail,

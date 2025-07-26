@@ -6,16 +6,16 @@ import { auth } from '@/firebase';
 export type User = firebase.User;
 export type AuthError = firebase.auth.Error;
 export type AuthResponse = { user: User | null; error: AuthError | null };
-export interface SignUpWithPasswordCredentials { email: string; password: string; }
+export interface Credentials { email: string; password: string; }
 
 /**
  * Sign up a new user with email & password.
  */
 export async function signUp(
-    { email, password }: SignUpWithPasswordCredentials
+    { email, password }: Credentials
 ): Promise<AuthResponse> {
     if (!password) {
-        const error: AuthError = { name: 'AuthError', code: 'auth/missing-password', message: 'Password is required for sign up.' };
+        const error: AuthError = { name: 'FirebaseError', code: 'auth/missing-password', message: 'Password is required for sign up.' };
         return { user: null, error };
     }
     try {
@@ -27,14 +27,15 @@ export async function signUp(
 }
 
 /**
- * Sign in an existing user.
+ * Sign in an existing user with email & password and persistence option.
  */
-export async function signInWithPassword(
-    { email, password }: SignUpWithPasswordCredentials,
+export async function signIn(
+    email: string,
+    password: string,
     stayLoggedIn: boolean = false
 ): Promise<AuthResponse> {
     if (!password) {
-        const error: AuthError = { name: 'AuthError', code: 'auth/missing-password', message: 'Password is required for sign in.' };
+        const error: AuthError = { name: 'FirebaseError', code: 'auth/missing-password', message: 'Password is required for sign in.' };
         return { user: null, error };
     }
     try {
@@ -101,7 +102,7 @@ export async function updateUserPassword(
 ): Promise<{ error: AuthError | null }> {
     const user = auth.currentUser;
     if (!user) {
-        const error: AuthError = { name: 'AuthError', code: 'auth/no-current-user', message: 'User not authenticated.' };
+        const error: AuthError = { name: 'FirebaseError', code: 'auth/no-current-user', message: 'User not authenticated.' };
         return { error };
     }
     try {
