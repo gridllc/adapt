@@ -33,7 +33,7 @@ const HomeAiPage: React.FC = () => {
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
                 }
-                const data = await response.json();
+                const data: { categories: TemplateCategory[] } = await response.json();
                 setTemplateData(data.categories);
             } catch (err) {
                 console.error("Failed to fetch templates:", err);

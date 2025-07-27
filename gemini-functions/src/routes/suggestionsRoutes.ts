@@ -1,5 +1,5 @@
-// gemini-functions/src/routes/suggestions.ts
-import * as express from "express";
+// gemini-functions/src/routes/suggestionsRoutes.ts
+import express from "express";
 import { https } from "firebase-functions/v1";
 import * as logger from "firebase-functions/logger";
 import { db, admin } from "../firebase";

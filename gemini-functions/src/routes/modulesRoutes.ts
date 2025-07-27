@@ -1,6 +1,5 @@
-// gemini-functions/src/routes/modules.ts
-import * as express from "express";
-import { Response } from "express";
+// gemini-functions/src/routes/modulesRoutes.ts
+import express from "express";
 import * as logger from "firebase-functions/logger";
 import { db, storage, admin } from "../firebase"; // Use centralized admin
 import { authed, AuthedRequest } from "../middleware/authed";
@@ -10,7 +9,7 @@ const BUCKET_NAME = process.env.GCLOUD_STORAGE_BUCKET || "adapt-frontend-rkdt.ap
 
 
 // --- Public Routes ---
-router.get("/", async (req, res) => {
+router.get("/", async (req: express.Request, res: express.Response) => {
     try {
         const modulesSnap = await db.collection("modules").get();
         const sessionsSnap = await db.collection("sessions").get();
@@ -37,53 +36,53 @@ router.get("/", async (req, res) => {
                 last_used_at: moduleStats?.lastUsed,
             };
         });
-        return res.status(200).json(modules);
+        return (res as any).status(200).json(modules);
     } catch (err) {
         logger.error("Error fetching available modules:", err);
-        return res.status(500).json({ error: "Internal server error" });
+        return (res as any).status(500).json({ error: "Internal server error" });
     }
 });
 
-router.get("/:slug", async (req, res) => {
+router.get("/:slug", async (req: express.Request, res: express.Response) => {
     try {
-        const doc = await db.collection("modules").doc(req.params.slug).get();
+        const doc = await db.collection("modules").doc((req as any).params.slug).get();
         if (!doc.exists) {
-            return res.status(404).json({ error: "Module not found." });
+            return (res as any).status(404).json({ error: "Module not found." });
         }
-        return res.status(200).json(doc.data());
+        return (res as any).status(200).json(doc.data());
     } catch (err) {
-        logger.error(`Error fetching module ${req.params.slug}:`, err);
-        return res.status(500).json({ error: "Internal server error" });
+        logger.error(`Error fetching module ${(req as any).params.slug}:`, err);
+        return (res as any).status(500).json({ error: "Internal server error" });
     }
 });
 
 // --- Authenticated Routes ---
-router.post("/", authed, async (req: AuthedRequest, res: Response) => {
+router.post("/", authed, async (req: AuthedRequest, res: express.Response) => {
     const uid = req.auth.uid;
-    const { moduleData } = req.body;
+    const { moduleData } = (req as any).body;
     if (!moduleData?.slug) {
-        return res.status(400).json({ error: "Module data with a slug is required." });
+        return (res as any).status(400).json({ error: "Module data with a slug is required." });
     }
 
     const moduleRef = db.collection("modules").doc(moduleData.slug);
     const doc = await moduleRef.get();
     if (doc.exists && doc.data()?.user_id !== uid) {
-        return res.status(403).json({ error: "You do not own this module." });
+        return (res as any).status(403).json({ error: "You do not own this module." });
     }
 
     const dataToSave = { ...moduleData, user_id: uid, updated_at: admin.firestore.FieldValue.serverTimestamp(), ...(doc.exists ? {} : { created_at: admin.firestore.FieldValue.serverTimestamp() }) };
     await moduleRef.set(dataToSave, { merge: true });
     const savedDoc = await moduleRef.get();
-    return res.status(200).json(savedDoc.data());
+    return (res as any).status(200).json(savedDoc.data());
 });
 
-router.delete("/:slug", authed, async (req: AuthedRequest, res: Response) => {
+router.delete("/:slug", authed, async (req: AuthedRequest, res: express.Response) => {
     const uid = req.auth.uid;
-    const { slug } = req.params;
+    const { slug } = (req as any).params;
     const moduleRef = db.collection("modules").doc(slug);
     const doc = await moduleRef.get();
     if (!doc.exists || doc.data()?.user_id !== uid) {
-        return res.status(403).json({ error: "You do not own this module." });
+        return (res as any).status(403).json({ error: "You do not own this module." });
     }
 
     const collectionsToDelete = [
@@ -106,7 +105,7 @@ router.delete("/:slug", authed, async (req: AuthedRequest, res: Response) => {
 
     deletionPromises.push(moduleRef.delete());
     await Promise.all(deletionPromises);
-    return res.status(204).send();
+    return (res as any).status(204).send();
 });
 
 export default router;

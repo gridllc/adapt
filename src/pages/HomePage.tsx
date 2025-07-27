@@ -51,7 +51,7 @@ const HomePage: React.FC = () => {
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
                 }
-                const data = await response.json();
+                const data: { categories: TemplateCategory[] } = await response.json();
                 setTemplateData(data.categories);
             } catch (error) {
                 console.error("Failed to fetch templates:", error);

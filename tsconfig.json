@@ -1,18 +1,34 @@
 {
   "compilerOptions": {
     "target": "ES2020",
-    "module": "commonjs",
+    "module": "ESNext",
     "lib": [
+      "DOM",
       "ES2020"
     ],
-    "outDir": "lib",
-    "rootDir": "src",
+    "jsx": "react-jsx",
     "strict": true,
     "esModuleInterop": true,
-    "forceConsistentCasingInFileNames": true,
-    "skipLibCheck": true
+    "moduleResolution": "node",
+    "allowSyntheticDefaultImports": true,
+    "resolveJsonModule": true,
+    "noImplicitReturns": true,
+    "noUnusedLocals": true,
+    "sourceMap": true,
+    "baseUrl": ".",
+    "paths": {
+      "@/*": [
+        "src/*"
+      ]
+    },
+    "types": [
+      "vite/client",
+      "react",
+      "react-dom"
+    ]
   },
   "include": [
     "src"
-  ]
+  ],
+  "compileOnSave": true
 }

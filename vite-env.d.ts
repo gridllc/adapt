@@ -1,3 +1,7 @@
+/// <reference types="react" />
+/// <reference types="react-dom" />
+/// <reference types="vite/client" />
+
 // This file augments the global ImportMeta type and defines custom environment variables.
 // By defining them here, we get type safety and autocompletion in our code.
 

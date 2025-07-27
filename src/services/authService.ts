@@ -1,7 +1,7 @@
 // src/services/authService.ts
 import firebase from 'firebase/compat/app';
 import 'firebase/compat/auth';
-import { auth } from '@/firebase';
+import { auth } from '@/firebase'; // Import the initialized auth instance for making calls
 
 export type User = firebase.User;
 export type AuthError = firebase.auth.Error;

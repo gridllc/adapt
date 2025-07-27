@@ -5,7 +5,7 @@ import cors from "cors";
 
 // Import modular routers from renamed files
 import modulesRoutes from "./routes/modulesRoutes";
-import sessionsRoutes from "./routes/sessionRoutes";
+import sessionsRoutes from "./routes/sessionsRoutes";
 import chatRoutes from "./routes/chatRoutes";
 import routinesRoutes from "./routes/routinesRoutes";
 import uploadsRoutes from "./routes/uploadsRoutes";
@@ -28,7 +28,7 @@ app.use("/suggestions", suggestionsRoutes);
 
 // --- Export the main Express API as a single Cloud Function ---
 // The 'any' cast is a pragmatic solution for type mismatches with firebase-functions/v1
-export const api = functions.https.onRequest(app as any);
+export const api = functions.https.onRequest(app);
 
 
 // --- Export Callable Functions ---

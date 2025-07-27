@@ -1,5 +1,5 @@
 // gemini-functions/src/middleware/authed.ts
-import { Request, Response, NextFunction } from "express";
+import * as express from "express";
 import { DecodedIdToken } from "firebase-admin/auth";
 import { auth } from "../firebase"; // Import the initialized auth instance
 import * as logger from "firebase-functions/logger";
@@ -8,11 +8,11 @@ import * as logger from "firebase-functions/logger";
  * Extends the Express Request interface to include the decoded Firebase auth token.
  * This provides type safety for authenticated routes.
  */
-export interface AuthedRequest extends Request {
+export interface AuthedRequest extends express.Request {
     auth: DecodedIdToken;
 }
 
-export const authed = async (req: Request, res: Response, next: NextFunction) => {
+export const authed = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
     const idToken = req.headers.authorization?.split("Bearer ")[1];
     if (!idToken) {
         res.status(401).send("Unauthorized: No token provided.");

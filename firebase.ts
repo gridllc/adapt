@@ -1,9 +1,9 @@
 // src/firebase.ts
-import firebase from 'firebase/compat/app';
-import 'firebase/compat/auth';
-import 'firebase/compat/firestore';
-import 'firebase/compat/functions';
-import 'firebase/compat/storage';
+import { initializeApp, type FirebaseApp } from 'firebase/app';
+import { getAuth, connectAuthEmulator } from 'firebase/auth';
+import { getFirestore, connectFirestoreEmulator } from 'firebase/firestore';
+import { getFunctions, connectFunctionsEmulator } from 'firebase/functions';
+import { getStorage, connectStorageEmulator } from 'firebase/storage';
 
 // --- Firebase Configuration ---
 const firebaseConfig = {
@@ -16,15 +16,15 @@ const firebaseConfig = {
     measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID,
 };
 
-// --- Initialize Firebase ---
-// This pattern prevents re-initializing the app on hot reloads.
-const app = !firebase.apps.length ? firebase.initializeApp(firebaseConfig) : firebase.app();
+// --- Initialize Firebase App ---
+export const app: FirebaseApp = initializeApp(firebaseConfig);
 
 // --- Initialize Firebase Services ---
-export const auth = app.auth();
-export const db = app.firestore();
-export const storage = app.storage();
-export const functions = app.functions('us-central1');
+export const auth = getAuth(app);
+export const db = getFirestore(app);
+export const storage = getStorage(app);
+export const functions = getFunctions(app, 'us-central1');
+
 
 // --- Connect to Emulators (Only in Dev Mode) ---
 if (import.meta.env.DEV) {
@@ -32,10 +32,10 @@ if (import.meta.env.DEV) {
     if (!(globalThis as any).EMULATORS_CONNECTED) {
         console.log('Connecting to Firebase emulators...');
         try {
-            auth.useEmulator('http://localhost:9099');
-            db.useEmulator('localhost', 8080);
-            functions.useEmulator('localhost', 5001);
-            storage.useEmulator('localhost', 9199);
+            connectAuthEmulator(auth, 'http://localhost:9099');
+            connectFirestoreEmulator(db, 'localhost', 8080);
+            connectFunctionsEmulator(functions, 'localhost', 5001);
+            connectStorageEmulator(storage, 'localhost', 9199);
             console.log('Successfully connected to Firebase emulators.');
             (globalThis as any).EMULATORS_CONNECTED = true;
         } catch (error) {
