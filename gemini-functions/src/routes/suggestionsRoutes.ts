@@ -42,6 +42,30 @@ export const getAllPendingSuggestionsCallable = async (data: any, context: https
 
 // --- Add Express routes for suggestions below if needed ---
 
+router.get('/pending', async (req, res) => {
+    try {
+        const suggestionsSnap = await db.collection("traineeSuggestions").where("status", "==", "pending").get();
+        const moduleIds = [...new Set(suggestionsSnap.docs.map((doc) => doc.data().module_id))];
+        if (moduleIds.length === 0) {
+            return res.status(200).json([]);
+        }
+        const modulesSnap = await db.collection("modules").where(admin.firestore.FieldPath.documentId(), "in", moduleIds).get();
+        const moduleTitles = new Map(modulesSnap.docs.map((doc) => [doc.id, doc.data().title]));
+        const suggestions = suggestionsSnap.docs.map((doc) => {
+            const sdata = doc.data();
+            return {
+                ...sdata,
+                id: doc.id,
+                module_title: moduleTitles.get(sdata.module_id) || "Unknown Module",
+            };
+        });
+        return res.status(200).json(suggestions);
+    } catch (err) {
+        logger.error("Error in GET /pending:", err);
+        return res.status(500).json({ error: "Failed to retrieve suggestions." });
+    }
+});
+
 // Example: router.get('/', authed, async (req, res) => { ... });
 
 export default router;
