@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { getAvailableModules, saveModule, deleteModule } from '@/services/moduleService';
 import { getQuestionFrequency, findHotspots, getAllTutorLogs, findPlatformHotspot } from '@/services/analyticsService';
-import { getCompletedSessionCount, getTotalSessionCount } from '@/services/sessionService';
+import { getCompletedSessionCount, getTotalSessionCount } from '@/services/sessionsService';
 import { getAllPendingSuggestions, getLatestAiSuggestionForStep, refineStep } from '@/services/suggestionsService';
 import { generateBranchModule } from '@/services/geminiService';
 import { BarChartIcon, LightbulbIcon, SparklesIcon, GitBranchIcon, BookOpenIcon, ClockIcon, HelpCircleIcon, VideoIcon, DownloadIcon, TrashIcon } from '@/components/Icons';

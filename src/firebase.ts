@@ -30,6 +30,7 @@ export const functions = getFunctions(firebaseApp, 'us-central1');
 
 // --- Connect to Emulators (Only in Dev Mode) ---
 if (import.meta.env.DEV) {
+  // Prevent double-connecting in hot reloads
   if (!(globalThis as any).EMULATORS_CONNECTED) {
     console.log('Connecting to Firebase emulators...');
     try {

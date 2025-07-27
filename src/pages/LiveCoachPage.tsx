@@ -3,7 +3,7 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/hooks/useToast';
 import { getModule } from '@/services/moduleService';
-import { getSession, saveSession } from '@/services/sessionService';
+import { getSession, saveSession } from '@/services/sessionsService';
 import { startChat, sendMessageWithRetry } from '@/services/geminiService';
 import { getPastFeedbackForStep, logAiFeedback, updateFeedbackWithFix, findSimilarFixes } from '@/services/feedbackService';
 import { getPromptContextForLiveCoach, getTagline, getCelebratoryTagline } from '@/utils/promptEngineering';

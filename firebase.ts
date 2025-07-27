@@ -1,5 +1,5 @@
 // src/firebase.ts
-import { initializeApp, type FirebaseApp } from 'firebase/app';
+import * as firebaseAppModule from 'firebase/app';
 import { getAuth, connectAuthEmulator } from 'firebase/auth';
 import { getFirestore, connectFirestoreEmulator } from 'firebase/firestore';
 import { getFunctions, connectFunctionsEmulator } from 'firebase/functions';
@@ -16,26 +16,27 @@ const firebaseConfig = {
     measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID,
 };
 
-// --- Initialize Firebase App ---
-export const app: FirebaseApp = initializeApp(firebaseConfig);
+// --- Initialize Firebase ---
+// This pattern prevents re-initializing the app on hot reloads.
+const app = firebaseAppModule.getApps().length > 0 ? firebaseAppModule.getApp() : firebaseAppModule.initializeApp(firebaseConfig);
+export const firebaseApp = app;
+
 
 // --- Initialize Firebase Services ---
-export const auth = getAuth(app);
-export const db = getFirestore(app);
-export const storage = getStorage(app);
-export const functions = getFunctions(app, 'us-central1');
-
+export const auth = getAuth(firebaseApp);
+export const db = getFirestore(firebaseApp);
+export const storage = getStorage(firebaseApp);
+export const functions = getFunctions(firebaseApp, 'us-central1');
 
 // --- Connect to Emulators (Only in Dev Mode) ---
 if (import.meta.env.DEV) {
-    // Use a global flag to prevent re-connecting on hot reloads
     if (!(globalThis as any).EMULATORS_CONNECTED) {
         console.log('Connecting to Firebase emulators...');
         try {
-            connectAuthEmulator(auth, 'http://localhost:9099');
-            connectFirestoreEmulator(db, 'localhost', 8080);
-            connectFunctionsEmulator(functions, 'localhost', 5001);
-            connectStorageEmulator(storage, 'localhost', 9199);
+            connectAuthEmulator(auth, 'http://localhost:9100');
+            connectFirestoreEmulator(db, 'localhost', 8100);
+            connectFunctionsEmulator(functions, 'localhost', 5100);
+            connectStorageEmulator(storage, 'localhost', 9200);
             console.log('Successfully connected to Firebase emulators.');
             (globalThis as any).EMULATORS_CONNECTED = true;
         } catch (error) {

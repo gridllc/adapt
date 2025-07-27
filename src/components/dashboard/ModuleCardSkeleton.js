@@ -1,0 +1,5 @@
+import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
+export const ModuleCardSkeleton = () => {
+    return (_jsx("div", { className: "p-4 bg-slate-100 dark:bg-slate-900/50 rounded-lg animate-pulse", children: _jsxs("div", { className: "flex items-center justify-between", children: [_jsxs("div", { className: "space-y-2", children: [_jsx("div", { className: "h-5 w-48 bg-slate-200 dark:bg-slate-700 rounded" }), _jsx("div", { className: "h-4 w-64 bg-slate-200 dark:bg-slate-700 rounded" })] }), _jsxs("div", { className: "flex items-center gap-2", children: [_jsx("div", { className: "h-8 w-16 bg-slate-200 dark:bg-slate-700 rounded-md" }), _jsx("div", { className: "h-8 w-12 bg-slate-200 dark:bg-slate-700 rounded-md" }), _jsx("div", { className: "h-8 w-8 bg-slate-200 dark:bg-slate-700 rounded-md" })] })] }) }));
+};
+//# sourceMappingURL=ModuleCardSkeleton.js.map

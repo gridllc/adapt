@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { getSession, saveSession } from '@/services/sessionService';
+import { getSession, saveSession } from '@/services/sessionsService';
 import type { SessionState, UserAction, StepStatus } from '@/types';
 
 // This hook now manages state synchronization with the database.

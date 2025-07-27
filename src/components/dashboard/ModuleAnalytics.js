@@ -1,0 +1,25 @@
+import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
+import { useMemo } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { Link } from 'react-router-dom';
+import { findHotspots, getQuestionFrequency } from '@/services/analyticsService';
+import { SparklesIcon, GitBranchIcon, HelpCircleIcon, LightbulbIcon, LoaderIcon } from '@/components/Icons';
+export const ModuleAnalytics = ({ modules, selectedModule, onModuleChange, allPendingSuggestions, onRefineStep, isRefining, onDraftBranchModule, isBranching, }) => {
+    const { data: questionStats = [], isLoading: isLoadingStats } = useQuery({
+        queryKey: ['questionFrequency', selectedModule?.slug],
+        queryFn: () => getQuestionFrequency(selectedModule.slug),
+        enabled: !!selectedModule,
+    });
+    const moduleHotspot = useMemo(() => {
+        if (!selectedModule || !questionStats || questionStats.length === 0)
+            return null;
+        return findHotspots(questionStats, selectedModule);
+    }, [questionStats, selectedModule]);
+    const pendingSuggestionsForModule = useMemo(() => {
+        if (!selectedModule)
+            return [];
+        return allPendingSuggestions.filter(s => s.moduleId === selectedModule.slug);
+    }, [allPendingSuggestions, selectedModule]);
+    return (_jsxs("div", { className: "space-y-6 bg-white dark:bg-slate-800/50 p-6 rounded-xl border border-slate-200 dark:border-slate-700 h-full", children: [_jsxs("div", { children: [_jsx("label", { htmlFor: "module-select", className: "block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1", children: "Analyze a Module" }), _jsxs("select", { id: "module-select", value: selectedModule?.slug || '', onChange: (e) => onModuleChange(e.target.value), className: "w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500", disabled: modules.length === 0, children: [modules.length === 0 && _jsx("option", { children: "No modules available" }), modules.map(module => (_jsx("option", { value: module.slug, children: module.title }, module.slug)))] })] }), !selectedModule ? (_jsx("div", { className: "text-center py-10 text-slate-500", children: "Select a module to see its analytics." })) : isLoadingStats ? (_jsx("div", { className: "text-center py-10 text-slate-500", children: "Loading analytics..." })) : (_jsxs("div", { className: "space-y-6", children: [moduleHotspot && (_jsxs("div", { className: "p-4 bg-yellow-100 dark:bg-yellow-900/30 rounded-lg border border-yellow-200 dark:border-yellow-700", children: [_jsxs("h4", { className: "font-semibold text-yellow-800 dark:text-yellow-300 flex items-center gap-2", children: [_jsx(HelpCircleIcon, { className: "h-5 w-5" }), " Top Module Hotspot"] }), _jsxs("p", { className: "text-sm text-yellow-700 dark:text-yellow-200 mt-1", children: ["The most confusing step is ", _jsxs("strong", { children: ["\"", moduleHotspot.stepTitle, "\""] }), " with ", moduleHotspot.questionCount, " questions logged."] }), isRefining || isBranching ? (_jsxs("div", { className: "mt-3 flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300", children: [_jsx(LoaderIcon, { className: "h-4 w-4 animate-spin" }), _jsx("span", { children: "AI is analyzing trainee data..." })] })) : (_jsxs("div", { className: "mt-3 flex flex-wrap gap-2", children: [_jsxs("button", { onClick: () => onRefineStep(selectedModule.slug, moduleHotspot.stepIndex), className: "bg-indigo-600 text-white text-xs font-semibold py-1.5 px-3 rounded-full hover:bg-indigo-700 flex items-center gap-1.5", children: [_jsx(SparklesIcon, { className: "h-4 w-4" }), "AI: Refine This Step"] }), _jsxs("button", { onClick: () => onDraftBranchModule(selectedModule.slug, moduleHotspot.stepIndex, moduleHotspot.stepTitle, moduleHotspot.questions), className: "bg-cyan-600 text-white text-xs font-semibold py-1.5 px-3 rounded-full hover:bg-cyan-700 flex items-center gap-1.5", children: [_jsx(GitBranchIcon, { className: "h-4 w-4" }), "AI: Draft Remedial Module"] })] }))] })), pendingSuggestionsForModule.length > 0 && (_jsxs("div", { className: "p-4 bg-blue-100 dark:bg-blue-900/30 rounded-lg border border-blue-200 dark:border-blue-700", children: [_jsxs("h4", { className: "font-semibold text-blue-800 dark:text-blue-300 flex items-center gap-2", children: [_jsx(LightbulbIcon, { className: "h-5 w-5" }), " Pending Trainee Suggestions"] }), _jsx("ul", { className: "mt-2 space-y-2", children: pendingSuggestionsForModule.map(sug => (_jsxs("li", { className: "text-sm text-blue-700 dark:text-blue-200 italic", children: ["\"", sug.text, "\"", _jsx(Link, { to: `/modules/${sug.moduleId}/edit`, className: "ml-2 text-xs font-semibold text-indigo-600 hover:underline", children: "(Review)" })] }, sug.id))) })] })), !moduleHotspot && pendingSuggestionsForModule.length === 0 && (_jsx("div", { className: "text-center py-10 text-slate-500", children: "No significant pain points or suggestions for this module yet." }))] }))] }));
+};
+//# sourceMappingURL=ModuleAnalytics.js.map

@@ -2,7 +2,7 @@ import React from 'react';
 import { useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { getModule } from '@/services/moduleService';
-import { getSessionSummary } from '@/services/sessionService';
+import { getSessionSummary } from '@/services/sessionsService';
 import { ClockIcon, LightbulbIcon, AlertTriangleIcon, TrophyIcon } from '@/components/Icons';
 import type { LiveCoachEvent, AppModule, SessionSummary } from '@/types';
 

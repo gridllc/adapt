@@ -1,5 +1,6 @@
 // gemini-functions/src/index.ts
-import * as functions from "firebase-functions/v1";
+import { onRequest } from "firebase-functions/v2/https";
+import { onCall } from "firebase-functions/v2/https";
 import express from "express";
 import cors from "cors";
 
@@ -13,8 +14,8 @@ import analyticsRoutes from "./routes/analyticsRoutes";
 import suggestionsRoutes, { getAllPendingSuggestionsCallable } from "./routes/suggestionsRoutes";
 
 const app = express();
-app.use(cors({ origin: true }));
 app.use(express.json());
+app.use(cors({ origin: true }));
 
 // --- Mount all API routes ---
 app.use("/modules", modulesRoutes);
@@ -27,13 +28,13 @@ app.use("/suggestions", suggestionsRoutes);
 
 
 // --- Export the main Express API as a single Cloud Function ---
-// The 'any' cast is a pragmatic solution for type mismatches with firebase-functions/v1
-export const api = functions.https.onRequest(app);
+// By adding the options object, we help TypeScript resolve the correct function overload.
+export const api = onRequest({ region: "us-central1" }, app);
 
 
 // --- Export Callable Functions ---
 // These are separate from the main 'api' Express app.
-export const getAllPendingSuggestions = functions.https.onCall(getAllPendingSuggestionsCallable);
+export const getAllPendingSuggestions = onCall(getAllPendingSuggestionsCallable);
 
 
 // Note: Additional callable functions would be exported here as well.
